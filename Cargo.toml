@@ -1,0 +1,23 @@
+[package]
+name = "root1d"
+version = "0.1.0"
+edition = "2021"
+authors = ["Christophe Troestler <christophe.troestler@umons.ac.be>"]
+description = "One dimensional root finding algorithms"
+homepage = "https://github.com/Chris00/rust-root1d"
+repository = "https://github.com/Chris00/rust-root1d"
+documentation = "https://docs.rs/root1d"
+license = "GPL-2.0-or-later"
+keywords = ["root", "math", "floating-point", "science"]
+categories = ["mathematics", "science"]
+
+[dependencies.rug]
+version = "1.15.0"
+default-features = false
+features = ["float", "rational"]
+optional = true
+
+[[example]]
+name = "basic"
+path = "examples/basic.rs"
+required-features = ["rug"]
