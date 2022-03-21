@@ -180,13 +180,9 @@ impl_traits_tol!(f32, 4. * f32::EPSILON, 2e-6);
 // Base trait
 
 /// Base trait that a type must implement to use any root finding method.
-pub trait RootBase: Clone + Debug
-where Self::DefaultTerminate: Terminate<Self> + Default {
+pub trait RootBase: Clone + Debug {
     /// Type for the default termination criteria.
-    type DefaultTerminate;
-    // FIXME: use the following when where clauses on associated types
-    // will be stable.
-    // where Self::DefaultTerminate: Terminate<Self> + Default;
+    type DefaultTerminate: Default + Terminate<Self>;
 
     /// Returns `true` iff `self` is finite.
     fn is_finite(&self) -> bool;
@@ -258,7 +254,6 @@ bisectable_fXX!(f32);
 #[must_use]
 pub fn bisect<T,F>(f: F, a: T, b: T) -> Bisect<T, F, T::DefaultTerminate>
 where T: RootBase + Copy,
-      T::DefaultTerminate: Terminate<T> + Default,
       F: FnMut(T) -> T {
     if !a.is_finite() {
         panic!("root1d::root: a = {:?} must be finite", a)
@@ -371,7 +366,6 @@ where T: Bisectable + Copy,
 pub fn bisect_mut<'a,T,F>(f: F, a: &'a T, b: &'a T)
                         -> BisectMut<'a, T, F, T::DefaultTerminate>
 where T: RootBase,
-      T::DefaultTerminate: Terminate<T> + Default,
       F: FnMut(&mut T, &T) + 'a {
     if !a.is_finite() {
         panic!("root1d::root_mut: a = {:?} must be finite", a)
@@ -515,7 +509,6 @@ where T: Bisectable,
 #[must_use]
 pub fn toms748<T,F>(f: F, a: T, b: T) -> Toms748<T, F, T::DefaultTerminate>
 where T: RootBase + Copy,
-      T::DefaultTerminate: Terminate<T> + Default,
       F: FnMut(T) -> T {
     if !a.is_finite() {
         panic!("root1d::root: a = {:?} must be finite", a)
