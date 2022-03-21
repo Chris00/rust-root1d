@@ -84,7 +84,7 @@ macro_rules! impl_options {
     // Implement the options to set the termination criterion (of type
     // `Term`) held by the field `t` of the struct `$s` also having
     // the additional `field`s in addition to `maxiter` and `maxiter_err`.
-    ($s: ident, $s_tr: ident, $t: ty, $( $field: ident ),* ) => {
+    ($s: ident, $s_tr: ident, $( $field: ident ),* ) => {
         /// Set the maximum number of iterations.
         ///
         /// Panics if `n` is ≤ 0.
@@ -109,7 +109,7 @@ macro_rules! impl_options {
         pub fn terminate<Tr>(self, t: Tr) -> $s_tr!(Tr)
         where Tr: Terminate<T> {
             // FIXME: type changing struct updating is experimental
-            // Root { t, .. self }
+            // $s { t, .. self }
             $s { t,
                  maxiter: self.maxiter,
                  maxiter_err: self.maxiter_err,
@@ -291,7 +291,7 @@ macro_rules! bisect_tr {
 
 impl<T, F, Term> Bisect<T, F, Term>
 where T: RootBase + Copy, Term: Terminate<T> {
-    impl_options!(Bisect, bisect_tr, T,  f, a, b);
+    impl_options!(Bisect, bisect_tr,  f, a, b);
 }
 
 impl<T, F, Term> Bisect<T, F, Term>
@@ -406,7 +406,7 @@ macro_rules! bisect_mut_tr {
 
 impl<'a, T, F, Term> BisectMut<'a, T, F, Term>
 where T: RootBase, Term: Terminate<T> {
-    impl_options!(BisectMut, bisect_mut_tr, T,  f, a, b, work);
+    impl_options!(BisectMut, bisect_mut_tr,  f, a, b, work);
 
     /// Provide variables that will be used as workspace when running
     /// the bisection algorithm.
