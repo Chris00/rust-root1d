@@ -24,8 +24,7 @@
 //! you must in addition implement [`Bisectable`] for `t` and, for
 //! [`toms748`], you must implement the trait [``].
 
-use std::{cell::RefCell,
-          cmp::Ordering,
+use std::{cmp::Ordering,
           fmt::{self, Debug, Display, Formatter},
           mem::swap,
           result::Result};
@@ -382,7 +381,7 @@ where T: RootBase,
     }
     BisectMut { f,  a,  b,
                 t: T::DefaultTerminate::default(),
-                work: RefCell::new(None),
+                work: None,
                 maxiter: 100,
                 maxiter_err: false,
     }
@@ -395,7 +394,7 @@ where Term: Terminate<T> {
     a: &'a T,
     b: &'a T,
     t: Term,
-    work: RefCell<Option<&'a mut (T,T,T)>>, // temp vars
+    work: Option<&'a mut (T,T,T)>, // temp vars
     maxiter: usize,
     maxiter_err: bool,
 }
@@ -411,7 +410,7 @@ where T: RootBase, Term: Terminate<T> {
     /// Provide variables that will be used as workspace when running
     /// the bisection algorithm.
     pub fn work(mut self, w: &'a mut (T, T, T)) -> Self {
-        *self.work.get_mut() = Some(w);
+        self.work = Some(w);
         self
     }
 }
@@ -434,9 +433,8 @@ where T: Bisectable,
     /// a NaN value.
     pub fn root_mut(&mut self, root: &mut T) -> Result<(), Error<T>> {
         use Ordering::*;
-        let work = self.work.get_mut();
         let mut tmp;
-        let (a, b, fx) = match work {
+        let (a, b, fx) = match &mut self.work {
             None => {
                 tmp = (self.a.clone(), self.a.clone(), self.a.clone());
                 (&mut tmp.0, &mut tmp.1, &mut tmp.2)
