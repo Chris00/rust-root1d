@@ -23,7 +23,8 @@ fn main() -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
 
 #[derive(Debug)]
 enum BisectError {
-    NoSignChange
+    NoSignChange,
+    NotFinite,
 }
 
 impl Display for BisectError {
@@ -55,8 +56,9 @@ where F: Fn(f64) -> f64 {
         //     Some(Greater) => b = x,
         //     Some(Less) => a = x,
         //     Some(Equal) => return Ok(x),
-        //     None => panic!("NaN")
+        //     None => return Err(BisectError::NotFinite)
         // }
+        if ! fx.is_finite() { return Err(BisectError::NotFinite) }
         if fx < 0. { a = x }
         else if fx > 0. { b = x }
         else { return Ok(x) }
