@@ -1,4 +1,7 @@
-use std::{error::Error,
+#![allow(unused_imports)]
+
+use std::{cmp::Ordering,
+          error::Error,
           fmt::{self, Display, Debug, Formatter},
           mem::swap};
 
@@ -42,12 +45,22 @@ where F: Fn(f64) -> f64 {
     let mut b = b;
     if f(a) > 0. { swap(&mut a, &mut b) }
     // f(a) < 0 < f(b)
-    while (a - b).abs() > rtol * a.abs().max(b.abs()) {
-        let x = 0.5 * (a + b);  // not suitable for general use
+    let mut niter: usize = 100;
+    while niter > 0 && (a - b).abs() > rtol * a.abs().max(b.abs()) {
+        use Ordering::*;
+        let mut x = 0.5 * (a + b);
+        if !x.is_finite() { x = 0.5 * a + 0.5 * b }
         let fx = f(x);
+        // match fx.partial_cmp(&0.) {
+        //     Some(Greater) => b = x,
+        //     Some(Less) => a = x,
+        //     Some(Equal) => return Ok(x),
+        //     None => panic!("NaN")
+        // }
         if fx < 0. { a = x }
         else if fx > 0. { b = x }
         else { return Ok(x) }
+        niter -= 1;
     }
     Ok(0.5 * (a + b))
 }
