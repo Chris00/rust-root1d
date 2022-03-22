@@ -1,0 +1,3 @@
+(executable
+ (name      speed)
+ (libraries root1d))

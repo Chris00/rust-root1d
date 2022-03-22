@@ -21,3 +21,11 @@ optional = true
 name = "basic"
 path = "examples/basic.rs"
 required-features = ["rug"]
+
+[[example]]
+name = "speed"
+path = "examples/speed.rs"
+
+[[example]]
+name = "speed_f64"
+path = "examples/speed_f64.rs"
