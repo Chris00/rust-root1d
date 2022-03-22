@@ -1,4 +1,5 @@
 TIME = time --format "%Uuser %Ssystem %Eelapsed %PCPU %Mk"
+TMP ?= /tmp
 
 build doc:
 	cargo $@ --features rug
@@ -14,8 +15,13 @@ bench:
 	@$(TIME) target/release/examples/speed
 	@$(TIME) target/release/examples/speed_f64
 
+flamegraph:
+	cargo build --profile release --example speed
+	flamegraph -o $(TMP)/speed.svg -- target/release/examples/speed
+
+
 clean:
 	cargo clean
 	-dune clean
 
-.PHONY: build doc examples bench clean
+.PHONY: build doc examples bench flamegraph clean

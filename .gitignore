@@ -1,3 +1,4 @@
 _build/
 /target
 Cargo.lock
+perf.data*
