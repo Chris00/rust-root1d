@@ -58,10 +58,10 @@ where F: Fn(f64) -> f64 {
         //     Some(Equal) => return Ok(x),
         //     None => return Err(BisectError::NotFinite)
         // }
-        if ! fx.is_finite() { return Err(BisectError::NotFinite) }
         if fx < 0. { a = x }
         else if fx > 0. { b = x }
-        else { return Ok(x) }
+        else if fx.is_finite() { return Ok(x) }
+        else { return Err(BisectError::NotFinite) }
         niter -= 1;
     }
     Ok(0.5 * (a + b))
