@@ -7,7 +7,7 @@ fn main() -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
     let mut sum = 0.; // do something with the roots to avoid dead code removal
 
     for _ in 0..10_000 {
-        for i in 2..50 {
+        for i in 2..100 {
             // Trivial function so that it does not domainate the
             // computation time.
             let c = i as f64;

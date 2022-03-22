@@ -6,7 +6,7 @@ fn main() -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
     let mut sum = 0.;
 
     for _ in 0..10_000 {
-        for i in 2..50 {
+        for i in 2..100 {
             let c = i as f64;
             let f = |x| x * x - c;
             let r = bisect(f, 0., 100., 1e-10)?;
