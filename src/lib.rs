@@ -245,12 +245,16 @@ bisectable_fXX!(f32);
 // Bisection for copy types
 
 /// Bisect the function `f` on the interval \[`a`, `b`\].  Nothing is
-/// computed until the [`root`][Bisect::root] method is used on the
-/// result.
+/// computed until the [`root`][Bisect::root] or
+/// [`root_mut`][Bisect::root_mut] method is used on the result.
 ///
 /// The default maximum number of iterations is 100 and reaching that
 /// many iteration simply returns the root (you can report that as an
 /// error by calling [`maxiter_err`][Bisect::maxiter]`(true)`).
+///
+/// This method requires that [`Bisectable`] is implemented for the
+/// type `T`.  This in turn requires that [`RootBase`] is implemented
+/// for `T` which provides the default termination criteria.
 #[must_use]
 pub fn bisect<T,F>(f: F, a: T, b: T) -> Bisect<T, F, T::DefaultTerminate>
 where T: RootBase + Copy,
@@ -356,12 +360,16 @@ where T: Bisectable + Copy,
 // Bisection for non-copy types
 
 /// Bisect the function `f` on the interval \[`a`, `b`\].  Nothing is
-/// computed until the [`root`][BisectMut::root] method is used on the
-/// result.
+/// computed until the [`root`][BisectMut::root] or
+/// [`root_mut`][BisectMut::root_mut] method is used on the result.
 ///
 /// The default maximum number of iterations is 100 and reaching that
 /// many iteration simply returns the root (you can report that as an
 /// error by calling [`maxiter_err`][BisectMut::maxiter]`(true)`).
+///
+/// This method requires that [`Bisectable`] is implemented for the
+/// type `T`.  This in turn requires that [`RootBase`] is implemented
+/// for `T` which provides the default termination criteria.
 #[must_use]
 pub fn bisect_mut<'a,T,F>(f: F, a: &'a T, b: &'a T)
                         -> BisectMut<'a, T, F, T::DefaultTerminate>
