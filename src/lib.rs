@@ -330,7 +330,7 @@ where T: Bisectable + Copy,
         }
         // f(a) < 0 < f(b)
         x.assign_mid(&a, &b);
-        while self.maxiter >0 {
+        for _ in 0 .. self.maxiter {
             x.assign_mid(&a, &b);
             if self.t.stop(&a, &b) {
                 return Ok(*x);
@@ -342,7 +342,6 @@ where T: Bisectable + Copy,
                 Some(Equal) => return Ok(*x),
                 None => return Err(Error::NotFinite{ x: *x, fx }),
             }
-            self.maxiter -= 1;
         }
 
         if self.maxiter_err {
