@@ -456,13 +456,17 @@ where T: Bisectable,
       F: FnMut(&mut T, &T),
       Term: Terminate<T> {
     /// Set `root` to a root of the function `f` (see [`bisect_mut`]).
-    /// Return `Some(err)` to indicate that the function `f` returned
-    /// a NaN value.
+    /// Return `Some(err)` to indicate that the algorithm failed
+    /// (e.g., when the function `f` returned a NaN value).
+    ///
+    /// If the [`work`][`BisectMut::work`] method was not used,
+    /// internal variables are constructed by cloning root, thereby
+    /// inheriting its precision for example.
     pub fn root_mut(&mut self, root: &mut T) -> Result<(), Error<T>> {
         let mut tmp;
         let (a, b, fx) = match &mut self.work {
             None => {
-                tmp = (self.a.clone(), self.a.clone(), self.a.clone());
+                tmp = (root.clone(), root.clone(), root.clone());
                 (&mut tmp.0, &mut tmp.1, &mut tmp.2)
             }
             Some(v) => {
@@ -678,8 +682,8 @@ mod rug {
     impl Bisectable for Float {
         #[inline]
         fn assign_mid(&mut self, a: &Self, b: &Self) {
-            let p = a.prec().max(b.prec());
-            self.set_prec(p + 1);
+            // Do not change the precision, let the use control that
+            // through passing a workspace and the `root` variable.
             self.assign(a);
             *self += b;
             *self /= 2i8;
@@ -691,7 +695,7 @@ mod rug {
         fn assign_mid(&mut self, a: &Self, b: &Self) {
             self.assign(a);
             *self += b;
-            *self /= 2i8;
+            *self /= 2u8;
         }
     }
 }
