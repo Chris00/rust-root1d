@@ -86,12 +86,14 @@ macro_rules! impl_options {
     ($s: ident, $s_tr: ident, $( $field: ident ),* ) => {
         /// Set the maximum number of iterations.
         ///
-        /// Panics if `n` is ≤ 0.
+        /// If `n`, it is interpreted as “unlimited” (actually
+        /// [`usize::MAX`]).
         pub fn maxiter(mut self, n: usize) -> Self {
-            if n <= 0 {
-                panic!("root1d::Root.maxiter: the argument must be > 0");
+            if n == 0 {
+                self.maxiter = usize::MAX;
+            } else {
+                self.maxiter = n;
             }
-            self.maxiter = n;
             self
         }
 
