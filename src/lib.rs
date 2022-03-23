@@ -24,8 +24,7 @@
 //! you must in addition implement [`Bisectable`] for `t` and, for
 //! [`toms748`], you must implement the trait [``].
 
-use std::{cmp::Ordering,
-          fmt::{self, Debug, Display, Formatter},
+use std::{fmt::{self, Debug, Display, Formatter},
           mem::swap,
           result::Result};
 
@@ -186,11 +185,17 @@ pub trait RootBase: Clone + Debug {
     /// Type for the default termination criteria.
     type DefaultTerminate: Default + Terminate<Self>;
 
-    /// Returns `true` iff `self` is finite.
-    fn is_finite(&self) -> bool;
+    /// Return `true` if `self` is < 0 (thus not a NaN).
+    fn lt0(&self) -> bool;
 
-    /// Return the neutral element for the addition.
-    fn cmp0(&self) -> Option<Ordering>;
+    /// Return `true` if `self` is > 0 (thus not a NaN).
+    fn gt0(&self) -> bool;
+
+    /// Returns `true` iff `self` is finite.
+    ///
+    /// If `self.lt0()` and `self.gt0()` are false and
+    /// `self.is_finite()` is true, then `self` must be zero.
+    fn is_finite(&self) -> bool;
 
     /// Set `self` to `rhs` using if possible the ressources already
     /// allocated for `self`.
@@ -200,8 +205,13 @@ pub trait RootBase: Clone + Debug {
 macro_rules! root_base_fXX {
     ($t: ty) => {
         impl RootBase for $t {
+            #[inline]
+            fn lt0(&self) -> bool { *self < 0. }
+            #[inline]
+            fn gt0(&self) -> bool { *self > 0. }
+            #[inline]
             fn is_finite(&self) -> bool { Self::is_finite(*self) }
-            fn cmp0(&self) -> Option<Ordering> { self.partial_cmp(&0.0) }
+            #[inline]
             fn assign(&mut self, rhs: &Self) { *self = *rhs }
             type DefaultTerminate = Tol<$t>;
         }
@@ -313,22 +323,36 @@ where T: Bisectable + Copy,
     }
 
     fn root_gen(&mut self, x: &mut T) -> Result<T, Error<T>> {
-        use Ordering::*;
         let mut a = self.a;  // `a` and `b` finite by construction
         let mut b = self.b;
         let fa = (self.f)(a);
-        let fb = (self.f)(b);
-        match (fa.cmp0(), fb.cmp0()) {
-            (Some(Equal), _) => return Ok(a),
-            (_, Some(Equal)) => return Ok(b),
-            (Some(Greater), Some(Greater)) | (Some(Less), Some(Less)) => {
-                panic!("root1d::bisect: the function must have opposite \
-                        signs on the bounds {:?} and {:?}.", a, b)
+        if fa.lt0() {
+            let fb = (self.f)(b);
+            if fb.gt0() {
+            } else if fb.lt0() {
+                panic!("root1d::bisect: no change of sign, \
+                        f({:?}) < 0 and f({:?}) < 0.", a, b)
+            } else if fb.is_finite() { // f(b) = 0
+                return Ok(b)
+            } else {
+                return Err(Error::NotFinite{ x: b,  fx: fb })
             }
-            (None, _) => return Err(Error::NotFinite{ x: a,  fx: fa }),
-            (_, None) => return Err(Error::NotFinite{ x: b,  fx: fb }),
-            (Some(Greater), Some(Less)) => swap(&mut a, &mut b),
-            (Some(Less), Some(Greater)) => (),
+        } else if fa.gt0() {
+            let fb = (self.f)(b);
+            if fb.lt0() {
+                swap(&mut a, &mut b);
+            } else if fb.gt0() {
+                panic!("root1d::bisect: no change of sign, \
+                        f({:?}) > 0 and f({:?}) > 0.", a, b)
+            } else if fb.is_finite() { // f(b) = 0
+                return Ok(b)
+            } else {
+                return Err(Error::NotFinite{ x: b,  fx: fb })
+            }
+        } else if fa.is_finite() { // f(a) = 0
+            return Ok(a)
+        } else {
+            return Err(Error::NotFinite{ x: a,  fx: fa })
         }
         // f(a) < 0 < f(b)
         x.assign_mid(&a, &b);
@@ -338,12 +362,10 @@ where T: Bisectable + Copy,
                 return Ok(*x);
             }
             let fx = (self.f)(*x);
-            match fx.cmp0() {
-                Some(Greater) => b = *x,
-                Some(Less) => a = *x,
-                Some(Equal) => return Ok(*x),
-                None => return Err(Error::NotFinite{ x: *x, fx }),
-            }
+            if fx.lt0() { a = *x }
+            else if fx.gt0() { b = *x }
+            else if fx.is_finite() { return Ok(*x) }
+            else { return Err(Error::NotFinite{ x: *x, fx }) }
         }
 
         if self.maxiter_err {
@@ -435,7 +457,6 @@ where T: Bisectable,
     /// Return `Some(err)` to indicate that the function `f` returned
     /// a NaN value.
     pub fn root_mut(&mut self, root: &mut T) -> Result<(), Error<T>> {
-        use Ordering::*;
         let mut tmp;
         let (a, b, fx) = match &mut self.work {
             None => {
@@ -449,44 +470,49 @@ where T: Bisectable,
         a.assign(self.a);
         b.assign(self.b);
         (self.f)(fx, a);
-        let fa_cmp_z = (*fx).cmp0();
-        (self.f)(fx, b);
-        match fa_cmp_z {
-            Some(Equal) => { root.assign(a);  return Ok(()); },
-            None => return_notfinite!(a, fx),
-            _ => (),
-        }
-        let fb_cmp_z = (*fx).cmp0();
-        match fb_cmp_z {
-            Some(Equal) => { root.assign(b);  return Ok(()) },
-            None => return_notfinite!(b, fx),
-            _ => (),
-        }
-        match (fa_cmp_z, fb_cmp_z) {
-            (Some(Greater), Some(Greater)) | (Some(Less), Some(Less)) => {
-                panic!("root1d::bisect_mut: the function must have opposite \
-                        signs on the bounds {:?} and {:?}.", a, b)
+        if fx.lt0() {
+            (self.f)(fx, b);
+            if fx.gt0() {
+            } else if fx.lt0() {
+                panic!("root1d::bisect: no change of sign, \
+                        f({:?}) < 0 and f({:?}) < 0.", a, b)
+            } else if fx.is_finite() { // f(b) = 0
+                root.assign(b);
+                return Ok(())
+            } else {
+                return_notfinite!(b, fx)
             }
-            (Some(Greater), Some(Less)) => {
-                swap(a,b);
+        } else if fx.gt0() {
+            (self.f)(fx, b);
+            if fx.lt0() {
+                swap(a, b);
+            } else if fx.gt0() {
+                panic!("root1d::bisect: no change of sign, \
+                        f({:?}) > 0 and f({:?}) > 0.", a, b)
+            } else if fx.is_finite() { // f(b) = 0
+                root.assign(b);
+                return Ok(())
+            } else {
+                return_notfinite!(b, fx)
             }
-            _ => (),
+        } else if fx.is_finite() { // f(a) = 0
+            root.assign(a);
+            return Ok(());
+        } else {
+            return_notfinite!(a, fx);
         }
         // f(a) < 0 < f(b)
-        while self.maxiter > 0 {
+        for _ in 0 .. self.maxiter {
             root.assign_mid(a, b);
             if self.t.stop(a, b) {
                 return Ok(());
             }
             (self.f)(fx, root);
-            match (*fx).cmp0() {
-                // `swap` so that we reuse allocated memory for `x`.
-                Some(Greater) => swap(b, root),
-                Some(Less) => swap(a, root),
-                Some(Equal) => return Ok(()),
-                None => return_notfinite!(root, fx),
-            }
-            self.maxiter -= 1;
+            // `swap` so as to reuse allocated memory.
+            if fx.lt0() { swap(a, root) }
+            else if fx.gt0() { swap(b, root) }
+            else if fx.is_finite() { return Ok(()) }
+            else { return_notfinite!(root, fx) }
         }
 
         if self.maxiter_err {
@@ -572,7 +598,7 @@ mod rug {
 
     macro_rules! impl_rug {
         ($t: ty, $new_t: ident, $rtol: expr, $atol: expr,
-         $is_finite: ident, $cmp0: ident) => {
+         $is_finite: ident) => {
             impl<U> From<Tol<U>> for TolRug<$t>
             where $t: AssignRound<U, Round = Round, Ordering = Ordering> {
                 fn from(t: Tol<U>) -> Self {
@@ -624,8 +650,9 @@ mod rug {
 
             impl RootBase for $t {
                 type DefaultTerminate = TolRug<Self>;
+                fn lt0(&self) -> bool { *self < 0u8 }
+                fn gt0(&self) -> bool { *self > 0u8 }
                 fn is_finite(&self) -> bool { $is_finite!(self) }
-                fn cmp0(&self) -> Option<Ordering> { $cmp0!(self) }
                 fn assign(&mut self, rhs: &Self) {
                     <Self as rug::Assign<&Self>>::assign(self, rhs); }
             }
@@ -634,19 +661,17 @@ mod rug {
 
     macro_rules! float_new { () => { Float::new(53) } }
     macro_rules! float_is_finite { ($s: expr) => { Float::is_finite($s) } }
-    macro_rules! float_cmp0 { ($s: expr) => { $s.cmp0() } }
     impl_rug!(Float, float_new,
               Float::with_val(53, 1e-16),
               Float::with_val(53, 1e-16),
-              float_is_finite, float_cmp0);
+              float_is_finite);
 
     macro_rules! rational_new { () => { Rational::new() } }
     macro_rules! rational_is_finite { ($s: ident) => { true } }
-    macro_rules! rational_cmp0 { ($s: expr) => { Some($s.cmp0()) } }
     impl_rug!(Rational, rational_new,
               (1, 1000_0000_0000_0000u64).into(),
               (1, 1000_0000_0000_0000u64).into(),
-              rational_is_finite, rational_cmp0);
+              rational_is_finite);
 
     impl Bisectable for Float {
         #[inline]
