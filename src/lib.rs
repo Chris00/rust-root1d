@@ -155,6 +155,7 @@ macro_rules! impl_traits_tol {
             fn default() -> Self { Tol { rtol: $rtol, atol: $atol } }
         }
         impl Terminate<$t> for Tol<$t> {
+            #[inline]
             fn stop(&mut self, a: &$t, b: &$t) -> bool {
                 (a - b).abs() <= self.rtol * a.abs().max(b.abs()) + self.atol
             }
@@ -236,6 +237,7 @@ pub trait Bisectable: RootBase {
 macro_rules! bisectable_fXX {
     ($t: ty) => {
         impl Bisectable for $t {
+            #[inline]
             fn assign_mid(&mut self, a: &Self, b: &Self) {
                 // Based on: F. Goualard, “How do you compute the
                 // midpoint of an interval?,” ACM Trans. Math. Softw.,
