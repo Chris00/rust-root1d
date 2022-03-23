@@ -10,8 +10,9 @@ examples:
 bench:
 	-@$(TIME) dune build examples/speed.exe
 	-@$(TIME) _build/default/examples/speed.exe
-	@$(TIME) cargo build --profile release \
-	  --example speed --example speed_f64
+	@$(TIME) cargo build --profile release --features rug \
+	  --example speed --example speed_f64 --example speed_rug
+	@$(TIME) target/release/examples/speed_rug
 	@$(TIME) target/release/examples/speed
 	@$(TIME) target/release/examples/speed_f64
 
