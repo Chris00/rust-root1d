@@ -17,6 +17,9 @@ default-features = false
 features = ["float", "rational"]
 optional = true
 
+[dev-dependencies]
+roots = "0.0.7"
+
 [[example]]
 name = "basic"
 path = "examples/basic.rs"
@@ -34,3 +37,7 @@ required-features = ["rug"]
 [[example]]
 name = "speed_f64"
 path = "examples/speed_f64.rs"
+
+[[example]]
+name = "speed_roots"
+path = "examples/speed_roots.rs"
