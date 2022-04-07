@@ -8,7 +8,7 @@ fn main() -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
 
     for _ in 0..10_000 {
         for i in 2..100 {
-            // Trivial function so that it does not domainate the
+            // Trivial function so that it does not dominate the
             // computation time.
             let c = i as f64;
             let f = |x| x * x - c;
