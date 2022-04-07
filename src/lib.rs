@@ -26,6 +26,7 @@
 
 use std::{fmt::{self, Debug, Display, Formatter},
           mem::swap,
+          ops::{Neg, Add, Sub, Mul, Div},
           result::Result};
 
 /// Errors that may be returned by the root finding methods.
@@ -186,10 +187,10 @@ pub trait RootBase: Clone + Debug {
     /// Type for the default termination criteria.
     type DefaultTerminate: Default + Terminate<Self>;
 
-    /// Return `true` if `self` is < 0 (thus not a NaN).
+    /// Return `true` if `self` is `< 0` (thus not a NaN).
     fn lt0(&self) -> bool;
 
-    /// Return `true` if `self` is > 0 (thus not a NaN).
+    /// Return `true` if `self` is `> 0` (thus not a NaN).
     fn gt0(&self) -> bool;
 
     /// Returns `true` iff `self` is finite.
@@ -306,6 +307,42 @@ where T: RootBase + Copy, Term: Terminate<T> {
     impl_options!(Bisect, bisect_tr,  f, a, b);
 }
 
+/// Check that `$fa` and `$fb` have opposite signs or panic.  If
+/// `$fa < 0 < $fb`, execute `$do_neg_pos`; if `$fa > 0 > $fb`,
+/// execute `$do_pos_neg`.
+macro_rules! act_on_sign_change {
+    ($name: expr, $a: ident, $b:ident, $fa: ident, $fb: ident,
+     $do_neg_pos: block, $do_pos_neg: block) => {
+        if $fa.lt0() {
+            if $fb.gt0() {
+                $do_neg_pos
+            } else if $fb.lt0() {
+                panic!("{}: no change of sign, f({:?}) < 0 and f({:?}) < 0.",
+                       $name, $a, $b)
+            } else if $fb.is_finite() { // f(b) = 0
+                return Ok($b)
+            } else {
+                return Err(Error::NotFinite{ x: $b,  fx: $fb })
+            }
+        } else if $fa.gt0() {
+            if $fb.lt0() {
+                $do_pos_neg
+            } else if $fb.gt0() {
+                panic!("{}: no change of sign, f({:?}) > 0 and f({:?}) > 0.",
+                       $name, $a, $b)
+            } else if $fb.is_finite() { // f(b) = 0
+                return Ok($b)
+            } else {
+                return Err(Error::NotFinite{ x: $b,  fx: $fb })
+            }
+        } else if $fa.is_finite() { // f(a) = 0
+            return Ok($a)
+        } else {
+            return Err(Error::NotFinite{ x: $a,  fx: $fa })
+        }
+    }
+}
+
 impl<T, F, Term> Bisect<T, F, Term>
 where T: Bisectable + Copy,
       F: FnMut(T) -> T,
@@ -327,35 +364,11 @@ where T: Bisectable + Copy,
     fn root_gen(&mut self, x: &mut T) -> Result<T, Error<T>> {
         let mut a = self.a;  // `a` and `b` finite by construction
         let mut b = self.b;
-        let fa = (self.f)(a);
-        if fa.lt0() {
-            let fb = (self.f)(b);
-            if fb.gt0() {
-            } else if fb.lt0() {
-                panic!("root1d::bisect: no change of sign, \
-                        f({:?}) < 0 and f({:?}) < 0.", a, b)
-            } else if fb.is_finite() { // f(b) = 0
-                return Ok(b)
-            } else {
-                return Err(Error::NotFinite{ x: b,  fx: fb })
-            }
-        } else if fa.gt0() {
-            let fb = (self.f)(b);
-            if fb.lt0() {
-                swap(&mut a, &mut b);
-            } else if fb.gt0() {
-                panic!("root1d::bisect: no change of sign, \
-                        f({:?}) > 0 and f({:?}) > 0.", a, b)
-            } else if fb.is_finite() { // f(b) = 0
-                return Ok(b)
-            } else {
-                return Err(Error::NotFinite{ x: b,  fx: fb })
-            }
-        } else if fa.is_finite() { // f(a) = 0
-            return Ok(a)
-        } else {
-            return Err(Error::NotFinite{ x: a,  fx: fa })
-        }
+        let mut fa = (self.f)(a);
+        let mut fb = (self.f)(b);
+        act_on_sign_change!("root1d::bisect", a, b, fa, fb, {},
+                            { swap(&mut a, &mut b);
+                              swap(&mut fa, &mut fb); });
         // f(a) < 0 < f(b)
         x.assign_mid(&a, &b);
         for _ in 0 .. self.maxiter {
@@ -543,13 +556,57 @@ where T: Bisectable,
 //
 // Toms 748 for copy types
 
+/// Requirements on the type `T` to be able to use [`toms748`]
+/// algorithm.
+pub trait OrdField: Bisectable + PartialOrd + Copy
+    + Neg<Output = Self>
+    + Add<Self, Output = Self>
+    + Sub<Self, Output = Self>
+    + Mul<Self, Output = Self>
+    + Div<Self, Output = Self> {
+        /// Return `true` if `self` is the number 0.
+        fn is_zero(self) -> bool;
+
+        /// Return twice the value of `self`.
+        fn twice(self) -> Self;
+
+        /// Return the absolute value of `self`.
+        fn abs(self) -> Self {
+            if self.lt0() { -self } else { self }
+        }
+
+        /// Return `true` if `self` ∈ \]`a`, `b`\[.  If `c` is NaN or
+        /// ±∞ (coming, say, from a division by 0), this function must
+        /// return `false`.  It may be assumed that `a <= b`.
+        #[inline]
+        fn is_inside_interval(&self, a: &Self, b: &Self) -> bool {
+            a < self && self < b
+        }
+    }
+
+macro_rules! impl_ordfield_fXX {
+    ($t: ty) => {
+        impl OrdField for $t {
+            #[inline]
+            fn is_zero(self) -> bool { self == 0. }
+            #[inline]
+            fn twice(self) -> Self { 2. * self }
+            #[inline]
+            fn abs(self) -> Self { <$t>::abs(self) }
+        }
+    }
+}
+
+impl_ordfield_fXX!(f32);
+impl_ordfield_fXX!(f64);
+
 
 /// Implements the Algorithm 748 method of Alefeld, Potro and Shi to
 /// find a zero of the function f on the interval \[a,b\], where f(a)
 /// and f(b) have opposite signs.
 #[must_use]
 pub fn toms748<T,F>(f: F, a: T, b: T) -> Toms748<T, F, T::DefaultTerminate>
-where T: RootBase + Copy,
+where T: OrdField,
       F: FnMut(T) -> T {
     if !a.is_finite() {
         panic!("root1d::root: a = {:?} must be finite", a)
@@ -573,6 +630,216 @@ pub struct Toms748<T, F, Term> {
     maxiter_err: bool,
 }
 
+macro_rules! toms748_tr { ($tr: ty) => { Toms748<T, F, $tr> } }
+
+impl<T, F, Term> Toms748<T, F, Term>
+where T: OrdField, Term: Terminate<T> {
+    impl_options!(Toms748, toms748_tr,  f, a, b);
+}
+
+macro_rules! bracket_sign {
+    ($a: ident $b: ident $c: expr,
+     $fa: ident $fb: ident $fc: ident, $lt0: ident, $gt0: ident) => {
+        if $fc.$lt0() {
+            ($a, $c, $b, $fa, $fc, $fb)
+        } else if $fc.$gt0() {
+            ($c, $b, $a, $fc, $fb, $fa)
+        } else if $fc.is_finite() {
+            return Ok($c)
+        } else {
+            return Err(Error::NotFinite{ x: $c, fx: $fc })
+        }
+    }
+}
+
+/// (a̅, b̅, d̅) = bracket!(a b c, fc)
+/// Assume f(a) < 0 < f(b).  Then f(a̅) < 0 < f(b̅).
+macro_rules! bracket_neg_pos {
+    ($a: ident $b: ident $c: expr, $fa: ident $fb: ident $fc: ident) => {
+        bracket_sign!($a $b $c, $fa $fb $fc, lt0, gt0)
+    }
+}
+
+/// (a̅, b̅, d̅) = bracket!(a b c, fc)
+/// Assume f(a) > 0 > f(b).  Then f(a̅) > 0 > f(b̅).
+macro_rules! bracket_pos_neg {
+    ($a: ident $b: ident $c: expr, $fa: ident $fb: ident $fc: ident) => {
+        bracket_sign!($a $b $c, $fa $fb $fc, gt0, lt0)
+    }
+}
+
+impl<T, F, Term> Toms748<T, F, Term>
+where T: OrdField,
+      F: FnMut(T) -> T,
+      Term: Terminate<T> {
+    /// Return `Ok(r)` where `r` is a root of the function or `Err`
+    /// indicating that the function returned a NaN value or, if
+    /// [`maxiter_err`][Toms748::maxiter_err] was turned on, that the
+    /// maximum number of iterations was reached.
+    pub fn root(&mut self) -> Result<T, Error<T>> {
+        let mut x = self.a;
+        self.root_gen(&mut x)
+    }
+
+    /// Same as [`root`][Toms748::root] but store the result in `root`.
+    pub fn root_mut(&mut self, root: &mut T) -> Result<(), Error<T>> {
+        self.root_gen(root).and(Ok(()))
+    }
+
+    fn root_gen(&mut self, x: &mut T) -> Result<T, Error<T>> {
+        let mut a;
+        let mut b;
+        if self.a <= self.b {
+            a = self.a;
+            b = self.b;
+        } else {
+            a = self.b;
+            b = self.a;
+        };
+        // a ≤ b, `a` and `b` finite by construction
+        let mut fa = (self.f)(a);
+        let mut fb = (self.f)(b);
+        if self.t.stop(&a, &b) {
+            x.assign_mid(&a, &b);
+            return Ok(*x)
+        }
+        let mut d;
+        let mut fd;
+        let mut e;
+        let mut fe;
+        // The state is (a, b, d, e) together with the values of `f`
+        // at these points.
+        macro_rules! body {
+            ($bracket: ident) => {
+                body!(n=2, $bracket);
+                for i in 1 .. self.maxiter {
+                    // 4.2.3
+                    let mut c = Self::ipzero(a, b, d, e, fa, fb, fd, fe);
+                    if !c.is_inside_interval(&a, &b) {
+                        c = Self::newton_quadratic2(a, b, d, fa, fb, fd);
+                    };
+                    body!(step, a b c d, fa fb fd, $bracket);
+                }
+                if self.maxiter_err {
+                    return Err(Error::MaxIter)
+                }
+                x.assign_mid(&a, &b);
+            };
+            (n=2, $bracket: ident) => {
+                // 4.2.1 = 4.1.1
+                let c1 = a - (fa / (fb - fa)) * (b - a);
+                debug_assert!(c1.is_inside_interval(&a, &b));
+                // 4.2.2 = 4.1.2
+                let fc1 = (self.f)(c1);
+                let (a2, b2, d2, fa2, fb2, fd2) = $bracket!(a b c1, fa fb fc1);
+                // 4.2.3
+                let c2 = Self::newton_quadratic2(a2, b2, d2, fa2, fb2, fd2);
+                body!(step, a2 b2 c2 d2, fa2 fb2 fd2, $bracket)
+            };
+            // Take (aₙ, bₙ, cₙ, dₙ) (see paper) and update the state
+            (step, $a: ident $b: ident $c: ident $d: ident,
+             $fa: ident $fb: ident $fd: ident,
+             $bracket: ident) => {
+                // 4.2.4
+                let fc = (self.f)($c);
+                let e2 = $d;
+                let (a2, b2, d2, fa2, fb2, fd2)
+                    = $bracket!($a $b $c, $fa $fb fc);
+                // 4.2.5
+                let fe2 = (self.f)(e2);
+                let mut c2 = Self::ipzero(a2, b2, d2, e2, fa2, fb2, fd2, fe2);
+                if !c2.is_inside_interval(&a2, &b2) {
+                    c2 = Self::newton_quadratic3(a2, b2, d2, fa2, fb2, fd2);
+                };
+                // 4.2.6
+                let fc2 = (self.f)(c2);
+                let (a3, b3, d3, fa3, fb3, fd3)
+                    = $bracket!(a2 b2 c2, fa2 fb2 fc2);
+                // 4.2.7 = 4.1.5
+                let u = if fa3.abs() < fb3.abs() { a3 } else { b3 };
+                // 4.2.8 = 4.1.6
+                let fu = (self.f)(u);
+                let mut c3 = u - ((fu / (fb - fa)) * (b - a)).twice();
+                // 4.2.9 = 4.1.7
+                if (c3 - u).abs().twice() > b - a {
+                    c3.assign_mid(&a3, &b3);
+                }
+                // 4.2.10 = 4.1.8
+                let fc3 = (self.f)(c3);
+                let (a4, b4, d4, fa4, fb4, fd4)
+                    = $bracket!(a3 b3 c3, fa3 fb3 fc3);
+                // 4.2.11 = 4.1.9
+                if (b4 - a4).twice() < b - a { // μ = 1/2
+                    a = a4;  fa = fa4;
+                    b = b4;  fb = fb4;
+                    d = d4;  fd = fd4;
+                    e = d3;  fe = fd3;
+                } else {
+                    e = d4;  fe = fd4;
+                    x.assign_mid(&a4, &b4);
+                    let fx = (self.f)(*x);
+                    (a, b, d, fa, fb, fd) = $bracket!(a4 b4 *x, fa4 fb4 fx);
+                }
+            }
+        }
+        act_on_sign_change!(
+            "root1d::toms748", a, b, fa, fb,
+            { body!(bracket_neg_pos); }, // f(a) < 0 < f(b)
+            { body!(bracket_pos_neg); }); // f(a) > 0 > f(b)
+        Ok(*x)
+    }
+
+    #[inline]
+    #[must_use]
+    fn newton_quadratic2(a: T, b: T, d: T, fa: T, fb: T, fd: T) -> T {
+        let fab = (fa - fb) / (a - b);
+        let fbd = (fb - fd) / (b - d);
+        let fabd = (fab - fbd) / (a - d);
+        if fabd.is_zero() { a - fa / fab }
+        else {
+            let den = fab - fabd * (a + b);
+            let (r, p) = if (fabd * fa).gt0() { (a, fa) } else { (b, fb) };
+            let r = r - p / (den + fabd * r.twice());
+            let p = fa + fab * (r - a) + fabd * (r - a) * (r - b);
+            r - p / (den + fabd * r.twice())
+        }
+    }
+
+    #[inline]
+    #[must_use]
+    fn newton_quadratic3(a: T, b: T, d: T, fa: T, fb: T, fd: T) -> T {
+        let fab = (fa - fb) / (a - b);
+        let fbd = (fb - fd) / (b - d);
+        let fabd = (fab - fbd) / (a - d);
+        if fabd.is_zero() { a - fa / fab }
+        else {
+            let den = fab - fabd * (a + b);
+            let (r, p) = if (fabd * fa).gt0() { (a, fa) } else { (b, fb) };
+            let r = r - p / (den + fabd * r.twice());
+            let p = fa + fab * (r - a) + fabd * (r - a) * (r - b);
+            let r = r - p / (den + fabd * r.twice());
+            let p = fa + fab * (r - a) + fabd * (r - a) * (r - b);
+            r - p / (den + fabd * r.twice())
+        }
+    }
+
+    /// Compute IP(0), the value at 0 of the inverse cubic interporation.
+    #[inline]
+    fn ipzero(a: T, b: T, c: T, d: T,
+              fa: T, fb: T, fc: T, fd: T) -> T {
+        let q11 = (c - d) * fc / (fd - fc);
+        let q21 = (b - c) * fb / (fc - fb);
+        let q31 = (a - b) * fa / (fb - fa);
+        let d21 = (b - c) * fc / (fc - fb);
+        let d31 = (a - b) * fb / (fb - fa);
+        let q22 = (d21 - q11) * fb / (fd - fb);
+        let d31_q21 = d31 - q21;
+        let q32 = d31_q21 * fa / (fc - fa);
+        let d32 = d31_q21 * fc / (fc - fa);
+        let q33 = (d32 - q22) * fa / (fd - fa);
+        a + (q31 + q32 + q33)
+    }
+}
 
 ////////////////////////////////////////////////////////////////////////
 //
@@ -705,8 +972,9 @@ mod rug {
 
 #[cfg(all(test, feature = "rug"))]
 mod tests {
-    use super::bisect_mut;
+    use crate as root1d;
     use rug::{Assign, Float};
+    //use test::bench::Bencher;
 
     #[test]
     fn bisection() {
@@ -716,7 +984,20 @@ mod tests {
         };
         let a = Float::with_val(53, 0f64);
         let b = Float::with_val(53, 2f64);
-        assert!((bisect_mut(f, &a, &b).root().unwrap()
+        assert!((root1d::bisect_mut(f, &a, &b).root().unwrap()
                  - 2f64.sqrt()).abs() < 1e-15);
     }
+
+    #[test]
+    fn toms748() {
+        let f = |x| x*x - 2.;
+        assert!((root1d::toms748(f, 0., 2.).root().unwrap()
+                 - 2f64.sqrt()).abs() < 1e-15);
+    }
+
+    // #[bench]
+    // fn bisection_f64_speed(b: &mut Bencher) {
+    //     let f = |x| x * x - 2.;
+    //     b.iter(|| root1d::toms748(f, 0., 100.));
+    // }
 }
