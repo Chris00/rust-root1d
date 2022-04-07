@@ -32,6 +32,6 @@ fn main() -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
         }
     }
 
-    println!("[T=rug] sum: {:.12} ({} times less iterations)", sum, n);
+    println!("[T=rug::Float] sum: {:.18} ({} times less iterations)", sum, n);
     Ok(())
 }
