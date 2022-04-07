@@ -795,13 +795,15 @@ where T: OrdField,
         let fab = (fa - fb) / (a - b);
         let fbd = (fb - fd) / (b - d);
         let fabd = (fab - fbd) / (a - d);
-        if fabd.is_zero() { a - fa / fab }
-        else {
-            let den = fab - fabd * (a + b);
-            let (r, p) = if (fabd * fa).gt0() { (a, fa) } else { (b, fb) };
-            let r = r - p / (den + fabd * r.twice());
-            let p = fa + fab * (r - a) + fabd * (r - a) * (r - b);
-            r - p / (den + fabd * r.twice())
+        let den = fab - fabd * (a + b);
+        let (r, p) = if (fabd * fa).gt0() { (a, fa) } else { (b, fb) };
+        let r = r - p / (den + fabd * r.twice());
+        let p = fa + fab * (r - a) + fabd * (r - a) * (r - b);
+        let r = r - p / (den + fabd * r.twice());
+        if r.is_inside_interval(&a, &b) {
+            r
+        } else { // Maybe fabd = 0, or d ∈ {a,b},...
+            a - fa / fab
         }
     }
 
@@ -811,15 +813,17 @@ where T: OrdField,
         let fab = (fa - fb) / (a - b);
         let fbd = (fb - fd) / (b - d);
         let fabd = (fab - fbd) / (a - d);
-        if fabd.is_zero() { a - fa / fab }
-        else {
-            let den = fab - fabd * (a + b);
-            let (r, p) = if (fabd * fa).gt0() { (a, fa) } else { (b, fb) };
-            let r = r - p / (den + fabd * r.twice());
-            let p = fa + fab * (r - a) + fabd * (r - a) * (r - b);
-            let r = r - p / (den + fabd * r.twice());
-            let p = fa + fab * (r - a) + fabd * (r - a) * (r - b);
-            r - p / (den + fabd * r.twice())
+        let den = fab - fabd * (a + b);
+        let (r, p) = if (fabd * fa).gt0() { (a, fa) } else { (b, fb) };
+        let r = r - p / (den + fabd * r.twice());
+        let p = fa + fab * (r - a) + fabd * (r - a) * (r - b);
+        let r = r - p / (den + fabd * r.twice());
+        let p = fa + fab * (r - a) + fabd * (r - a) * (r - b);
+        let r = r - p / (den + fabd * r.twice());
+        if r.is_inside_interval(&a, &b) {
+            r
+        } else {
+            a - fa / fab
         }
     }
 
