@@ -638,12 +638,22 @@ where T: OrdField, Term: Terminate<T> {
 }
 
 macro_rules! bracket_sign {
+    // Assume $a < $c < $b and $fa.$lt0() and $fb.gt0()
     ($a: ident $b: ident $c: expr,
-     $fa: ident $fb: ident $fc: ident, $lt0: ident, $gt0: ident) => {
+     $fa: ident $fb: ident $fc: ident, $self: ident, $x: ident,
+     $lt0: ident, $gt0: ident) => {
         if $fc.$lt0() {
-            ($a, $c, $b, $fa, $fc, $fb)
-        } else if $fc.$gt0() {
+            if $self.t.stop(&$c, &$b) {
+                $x.assign_mid(&$c, &$b);
+                return Ok(*$x)
+            }
             ($c, $b, $a, $fc, $fb, $fa)
+        } else if $fc.$gt0() {
+            if $self.t.stop(&$a, &$c) {
+                $x.assign_mid(&$a, &$c);
+                return Ok(*$x)
+            }
+            ($a, $c, $b, $fa, $fc, $fb)
         } else if $fc.is_finite() {
             return Ok($c)
         } else {
@@ -655,16 +665,18 @@ macro_rules! bracket_sign {
 /// (a̅, b̅, d̅) = bracket!(a b c, fc)
 /// Assume f(a) < 0 < f(b).  Then f(a̅) < 0 < f(b̅).
 macro_rules! bracket_neg_pos {
-    ($a: ident $b: ident $c: expr, $fa: ident $fb: ident $fc: ident) => {
-        bracket_sign!($a $b $c, $fa $fb $fc, lt0, gt0)
+    ($a: ident $b: ident $c: expr, $fa: ident $fb: ident $fc: ident,
+     $self: ident, $x: ident) => {
+        bracket_sign!($a $b $c, $fa $fb $fc, $self, $x, lt0, gt0)
     }
 }
 
 /// (a̅, b̅, d̅) = bracket!(a b c, fc)
 /// Assume f(a) > 0 > f(b).  Then f(a̅) > 0 > f(b̅).
 macro_rules! bracket_pos_neg {
-    ($a: ident $b: ident $c: expr, $fa: ident $fb: ident $fc: ident) => {
-        bracket_sign!($a $b $c, $fa $fb $fc, gt0, lt0)
+    ($a: ident $b: ident $c: expr, $fa: ident $fb: ident $fc: ident,
+     $self: ident, $x: ident) => {
+        bracket_sign!($a $b $c, $fa $fb $fc, $self, $x, gt0, lt0)
     }
 }
 
@@ -712,7 +724,7 @@ where T: OrdField,
         macro_rules! body {
             ($bracket: ident) => {
                 body!(n=2, $bracket);
-                for i in 1 .. self.maxiter {
+                for _ in 1 .. self.maxiter {
                     // 4.2.3
                     let mut c = Self::ipzero(a, b, d, e, fa, fb, fd, fe);
                     if !c.is_inside_interval(&a, &b) {
@@ -731,7 +743,8 @@ where T: OrdField,
                 debug_assert!(c1.is_inside_interval(&a, &b));
                 // 4.2.2 = 4.1.2
                 let fc1 = (self.f)(c1);
-                let (a2, b2, d2, fa2, fb2, fd2) = $bracket!(a b c1, fa fb fc1);
+                let (a2, b2, d2, fa2, fb2, fd2)
+                    = $bracket!(a b c1, fa fb fc1, self, x);
                 // 4.2.3
                 let c2 = Self::newton_quadratic2(a2, b2, d2, fa2, fb2, fd2);
                 body!(step, a2 b2 c2 d2, fa2 fb2 fd2, $bracket)
@@ -744,7 +757,7 @@ where T: OrdField,
                 let fc = (self.f)($c);
                 let e2 = $d;
                 let (a2, b2, d2, fa2, fb2, fd2)
-                    = $bracket!($a $b $c, $fa $fb fc);
+                    = $bracket!($a $b $c, $fa $fb fc, self, x);
                 // 4.2.5
                 let fe2 = (self.f)(e2);
                 let mut c2 = Self::ipzero(a2, b2, d2, e2, fa2, fb2, fd2, fe2);
@@ -754,20 +767,20 @@ where T: OrdField,
                 // 4.2.6
                 let fc2 = (self.f)(c2);
                 let (a3, b3, d3, fa3, fb3, fd3)
-                    = $bracket!(a2 b2 c2, fa2 fb2 fc2);
+                    = $bracket!(a2 b2 c2, fa2 fb2 fc2, self, x);
                 // 4.2.7 = 4.1.5
                 let u = if fa3.abs() < fb3.abs() { a3 } else { b3 };
                 // 4.2.8 = 4.1.6
                 let fu = (self.f)(u);
-                let mut c3 = u - ((fu / (fb - fa)) * (b - a)).twice();
+                let mut c3 = u - ((fu / (fb3 - fa3)) * (b3 - a3)).twice();
                 // 4.2.9 = 4.1.7
-                if (c3 - u).abs().twice() > b - a {
+                if (c3 - u).abs().twice() > b3 - a3 {
                     c3.assign_mid(&a3, &b3);
                 }
                 // 4.2.10 = 4.1.8
                 let fc3 = (self.f)(c3);
                 let (a4, b4, d4, fa4, fb4, fd4)
-                    = $bracket!(a3 b3 c3, fa3 fb3 fc3);
+                    = $bracket!(a3 b3 c3, fa3 fb3 fc3, self, x);
                 // 4.2.11 = 4.1.9
                 if (b4 - a4).twice() < b - a { // μ = 1/2
                     a = a4;  fa = fa4;
@@ -776,9 +789,10 @@ where T: OrdField,
                     e = d3;  fe = fd3;
                 } else {
                     e = d4;  fe = fd4;
-                    x.assign_mid(&a4, &b4);
-                    let fx = (self.f)(*x);
-                    (a, b, d, fa, fb, fd) = $bracket!(a4 b4 *x, fa4 fb4 fx);
+                    c3.assign_mid(&a4, &b4); // reuse c3
+                    let fmid = (self.f)(c3);
+                    (a, b, d, fa, fb, fd)
+                        = $bracket!(a4 b4 c3, fa4 fb4 fmid, self, x);
                 }
             }
         }
