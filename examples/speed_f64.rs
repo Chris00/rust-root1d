@@ -17,7 +17,7 @@ fn main() -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
         }
     }
 
-    println!("[f64] sum: {:.12}", sum);
+    println!("bisect_f64 sum: {:.12}", sum);
     Ok(())
 }
 
