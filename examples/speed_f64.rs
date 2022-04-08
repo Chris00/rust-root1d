@@ -38,14 +38,16 @@ impl Error for BisectError {}
 
 /// Minimal and monomorphic routine to estimate the maximum possible
 /// speed.
-fn bisect<F>(f: F, a: f64, b: f64, rtol: f64) -> Result<f64, BisectError>
-where F: Fn(f64) -> f64 {
-    if f(a) == 0. { return Ok(a) }
-    if f(b) == 0. { return Ok(b) }
-    if !(f(a) * f(b) < 0.) { return Err(BisectError::NoSignChange) }
+fn bisect<F>(mut f: F, a: f64, b: f64, rtol: f64) -> Result<f64, BisectError>
+where F: FnMut(f64) -> f64 {
+    let fa = f(a);
+    let fb = f(b);
+    if fa == 0. { return Ok(a) }
+    if fb == 0. { return Ok(b) }
+    if !(fa * fb < 0.) { return Err(BisectError::NoSignChange) }
     let mut a = a;
     let mut b = b;
-    if f(a) > 0. { swap(&mut a, &mut b) }
+    if fa > 0. { swap(&mut a, &mut b) }
     // f(a) < 0 < f(b)
     let mut niter: usize = 100;
     while niter > 0 && (a - b).abs() > rtol * a.abs().max(b.abs()) {
