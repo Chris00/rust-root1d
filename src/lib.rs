@@ -16,13 +16,13 @@
 //! This library can readily be usef with types `f64` and `f32` and,
 //! if you activate the feature `rug` with `rug::Float` and
 //! `rug::Rational`.  To use it with with another type, say `t`,
-//! implement the trait [`RootBase`] for `t` which in turn requires
+//! implement the trait [`Bisectable`] for `t` which in turn requires
 //! that you decide which type will store the default termination
 //! routine (for example one based on tolerances, either
 //! [`Tol<t>`][Tol] or a structure implementing [`SetTolerances`]) and
-//! implement [`Terminate`] and [`Default`] for it.  To use [`bisect`]
-//! you must in addition implement [`Bisectable`] for `t` and, for
-//! [`toms748`], you must implement the trait [``].
+//! implement [`Terminate`] and [`Default`] for it.  To use
+//! [`toms748`], you must also implement the trait [`OrdField`] or
+//! [`OrdFieldMut`].
 
 use std::{fmt::{self, Debug, Display, Formatter},
           mem::swap,
@@ -178,12 +178,13 @@ macro_rules! impl_traits_tol {
 impl_traits_tol!(f64, 4. * f64::EPSILON, 2e-12);
 impl_traits_tol!(f32, 4. * f32::EPSILON, 2e-6);
 
+
 ////////////////////////////////////////////////////////////////////////
 //
-// Base trait
+// Bisectable types
 
-/// Base trait that a type must implement to use any root finding method.
-pub trait RootBase: Clone + Debug {
+/// Trait indicating that the type is suitable for the bisection algorithm.
+pub trait Bisectable: Clone + Debug {
     /// Type for the default termination criteria.
     type DefaultTerminate: Default + Terminate<Self>;
 
@@ -202,11 +203,17 @@ pub trait RootBase: Clone + Debug {
     /// Set `self` to `rhs` using if possible the ressources already
     /// allocated for `self`.
     fn assign(&mut self, rhs: &Self);
+
+    /// Set `self` to the midpoint of the interval \[`a`, `b`\].
+    /// The bounds may be assumed to be finite (as determined by
+    /// [`Bisectable::is_finite`]).
+    fn assign_mid(&mut self, a: &Self, b: &Self);
 }
 
-macro_rules! root_base_fXX {
+macro_rules! bisectable_fXX {
     ($t: ty) => {
-        impl RootBase for $t {
+        impl Bisectable for $t {
+            type DefaultTerminate = Tol<$t>;
             #[inline]
             fn lt0(&self) -> bool { *self < 0. }
             #[inline]
@@ -215,29 +222,6 @@ macro_rules! root_base_fXX {
             fn is_finite(&self) -> bool { Self::is_finite(*self) }
             #[inline]
             fn assign(&mut self, rhs: &Self) { *self = *rhs }
-            type DefaultTerminate = Tol<$t>;
-        }
-    }
-}
-
-root_base_fXX!(f64);
-root_base_fXX!(f32);
-
-////////////////////////////////////////////////////////////////////////
-//
-// Bisectable types
-
-/// Trait indicating that the type is suitable for the bisection algorithm.
-pub trait Bisectable: RootBase {
-    /// Set `self` to the midpoint of the interval \[`a`, `b`\].
-    /// The bounds may be assumed to be finite (as determined by
-    /// [`RootBase::is_finite`]).
-    fn assign_mid(&mut self, a: &Self, b: &Self);
-}
-
-macro_rules! bisectable_fXX {
-    ($t: ty) => {
-        impl Bisectable for $t {
             #[inline]
             fn assign_mid(&mut self, a: &Self, b: &Self) {
                 // Based on: F. Goualard, “How do you compute the
@@ -268,11 +252,10 @@ bisectable_fXX!(f32);
 /// error by calling [`maxiter_err`][Bisect::maxiter]`(true)`).
 ///
 /// This method requires that [`Bisectable`] is implemented for the
-/// type `T`.  This in turn requires that [`RootBase`] is implemented
-/// for `T` which provides the default termination criteria.
+/// type `T` which provides the default termination criteria.
 #[must_use]
 pub fn bisect<T,F>(f: F, a: T, b: T) -> Bisect<T, F, T::DefaultTerminate>
-where T: RootBase + Copy,
+where T: Bisectable + Copy,
       F: FnMut(T) -> T {
     if !a.is_finite() {
         panic!("root1d::root: a = {:?} must be finite", a)
@@ -303,7 +286,7 @@ macro_rules! bisect_tr {
 }
 
 impl<T, F, Term> Bisect<T, F, Term>
-where T: RootBase + Copy, Term: Terminate<T> {
+where T: Bisectable + Copy, Term: Terminate<T> {
     impl_options!(Bisect, bisect_tr,  f, a, b);
 }
 
@@ -406,12 +389,11 @@ where T: Bisectable + Copy,
 /// error by calling [`maxiter_err`][BisectMut::maxiter]`(true)`).
 ///
 /// This method requires that [`Bisectable`] is implemented for the
-/// type `T`.  This in turn requires that [`RootBase`] is implemented
-/// for `T` which provides the default termination criteria.
+/// type `T` which provides the default termination criteria.
 #[must_use]
 pub fn bisect_mut<'a,T,F>(f: F, a: &'a T, b: &'a T)
                         -> BisectMut<'a, T, F, T::DefaultTerminate>
-where T: RootBase,
+where T: Bisectable,
       F: FnMut(&mut T, &T) + 'a {
     if !a.is_finite() {
         panic!("root1d::root_mut: a = {:?} must be finite", a)
@@ -444,7 +426,7 @@ macro_rules! bisect_mut_tr {
 }
 
 impl<'a, T, F, Term> BisectMut<'a, T, F, Term>
-where T: RootBase, Term: Terminate<T> {
+where T: Bisectable, Term: Terminate<T> {
     impl_options!(BisectMut, bisect_mut_tr,  f, a, b, work);
 
     /// Provide variables that will be used as workspace when running
@@ -876,7 +858,7 @@ mod rug {
     use std::{cell::RefCell,
               cmp::Ordering};
     use rug::{Float, Rational, float::Round, ops::AssignRound};
-    use crate::{Bisectable, RootBase, Terminate, Tol};
+    use crate::{Bisectable, Terminate, Tol};
 
     /// Termination criterion based on tolerances for Rug.
     pub struct TolRug<T> {
@@ -888,7 +870,7 @@ mod rug {
 
     macro_rules! impl_rug {
         ($t: ty, $new_t: ident, $rtol: expr, $atol: expr,
-         $is_finite: ident) => {
+         $is_finite: ident, $assign_mid: item) => {
             impl<U> From<Tol<U>> for TolRug<$t>
             where $t: AssignRound<U, Round = Round, Ordering = Ordering> {
                 fn from(t: Tol<U>) -> Self {
@@ -938,13 +920,19 @@ mod rug {
                 }
             }
 
-            impl RootBase for $t {
+            impl Bisectable for $t {
                 type DefaultTerminate = TolRug<Self>;
+                #[inline]
                 fn lt0(&self) -> bool { *self < 0u8 }
+                #[inline]
                 fn gt0(&self) -> bool { *self > 0u8 }
+                #[inline]
                 fn is_finite(&self) -> bool { $is_finite!(self) }
+                #[inline]
                 fn assign(&mut self, rhs: &Self) {
                     <Self as rug::Assign<&Self>>::assign(self, rhs); }
+                #[inline]
+                $assign_mid
             }
         }
     }
@@ -954,34 +942,24 @@ mod rug {
     impl_rug!(Float, float_new,
               Float::with_val(53, 1e-16),
               Float::with_val(53, 1e-16),
-              float_is_finite);
+              float_is_finite,
+              fn assign_mid(&mut self, a: &Self, b: &Self) {
+                  self.assign(a);
+                  *self += b;
+                  *self /= 2i8;
+              });
 
     macro_rules! rational_new { () => { Rational::new() } }
     macro_rules! rational_is_finite { ($s: ident) => { true } }
     impl_rug!(Rational, rational_new,
               (1, 1000_0000_0000_0000u64).into(),
               (1, 1000_0000_0000_0000u64).into(),
-              rational_is_finite);
-
-    impl Bisectable for Float {
-        #[inline]
-        fn assign_mid(&mut self, a: &Self, b: &Self) {
-            // Do not change the precision, let the use control that
-            // through passing a workspace and the `root` variable.
-            self.assign(a);
-            *self += b;
-            *self /= 2i8;
-        }
-    }
-
-    impl Bisectable for Rational {
-        #[inline]
-        fn assign_mid(&mut self, a: &Self, b: &Self) {
-            self.assign(a);
-            *self += b;
-            *self /= 2u8;
-        }
-    }
+              rational_is_finite,
+              fn assign_mid(&mut self, a: &Self, b: &Self) {
+                  self.assign(a);
+                  *self += b;
+                  *self /= 2u8;
+              });
 }
 
 
