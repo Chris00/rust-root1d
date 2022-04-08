@@ -1,6 +1,7 @@
 //! One dimensional root finding algorithms.
 //!
-//!
+//! This crate offers several *generic* root finding algorithms for
+//! functions from ℝ to ℝ.
 //!
 //! ```
 //! use root1d::bisect;
@@ -252,16 +253,31 @@ bisectable_fXX!(f32);
 //
 // Bisection for copy types
 
-/// Bisect the function `f` on the interval \[`a`, `b`\].  Nothing is
-/// computed until the [`root`][Bisect::root] or
-/// [`root_mut`][Bisect::root_mut] method is used on the result.
+/// Find a root of the function `f` on the interval \[`a`, `b`\] where
+/// `f(a)` and `f(b)` have opposite signs using the bisection
+/// algorithm.
 ///
 /// The default maximum number of iterations is 100 and reaching that
 /// many iteration simply returns the root (you can report that as an
 /// error by calling [`maxiter_err`][Bisect::maxiter]`(true)`).
+/// Nothing is computed until the [`root`][Bisect::root] or
+/// [`root_mut`][Bisect::root_mut] method is used on the result.
 ///
-/// This method requires that [`Bisectable`] is implemented for the
-/// type `T` which provides the default termination criteria.
+/// The bisection algorithm is quite slow be requires only a few
+/// things from the type `T`.  Specifically, it requires that
+/// [`Bisectable`] is implemented for the type `T` (which also
+/// provides the default termination criteria).
+///
+/// # Example
+///
+/// ```
+/// use root1d::bisect;
+/// # use std::error::Error;
+/// # fn main() -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
+/// assert!((bisect(|x| x*x - 2., 0., 2.).atol(0.).root()?
+///          - 2f64.sqrt()).abs() < 1e-15);
+/// # Ok(()) }
+/// ```
 #[must_use]
 pub fn bisect<T,F>(f: F, a: T, b: T) -> Bisect<T, F, T::DefaultTerminate>
 where T: Bisectable + Copy,
@@ -279,7 +295,7 @@ where T: Bisectable + Copy,
     }
 }
 
-/// Bisection algorithm (for copy types).
+/// Bisection algorithm (for [`Copy`] types).
 pub struct Bisect<T, F, Term>
 where Term: Terminate<T> {
     f: F,
@@ -389,26 +405,38 @@ where T: Bisectable + Copy,
 //
 // Bisection for non-copy types
 
-/// Bisect the function `f` on the interval \[`a`, `b`\].  Nothing is
-/// computed until the [`root`][BisectMut::root] or
-/// [`root_mut`][BisectMut::root_mut] method is used on the result.
+/// Same as [`bisect`] for non-[`Copy`] types.
 ///
 /// The default maximum number of iterations is 100 and reaching that
 /// many iteration simply returns the root (you can report that as an
 /// error by calling [`maxiter_err`][BisectMut::maxiter]`(true)`).
+/// Nothing is computed until the [`root`][BisectMut::root] or
+/// [`root_mut`][BisectMut::root_mut] method is used on the result.
 ///
 /// This method requires that [`Bisectable`] is implemented for the
 /// type `T` which provides the default termination criteria.
+///
+/// # Example
+///
+/// ```
+/// use root1d::bisect_mut;
+/// # use std::error::Error;
+/// # fn main() -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
+/// let f = |y: &mut f64, x: &f64| *y = *x * *x - 2.;
+/// assert!((bisect_mut(f, &0., &2.).atol(0.).root()?
+///          - 2f64.sqrt()).abs() < 1e-15);
+/// # Ok(()) }
+/// ```
 #[must_use]
 pub fn bisect_mut<'a,T,F>(f: F, a: &'a T, b: &'a T)
                         -> BisectMut<'a, T, F, T::DefaultTerminate>
 where T: Bisectable,
       F: FnMut(&mut T, &T) + 'a {
     if !a.is_finite() {
-        panic!("root1d::root_mut: a = {:?} must be finite", a)
+        panic!("root1d::bisect_mut: a = {:?} must be finite", a)
     }
     if !b.is_finite() {
-        panic!("root1d::root_mut: b = {:?} must be finite", b)
+        panic!("root1d::bisect_mut: b = {:?} must be finite", b)
     }
     BisectMut { f,  a,  b,
                 t: T::DefaultTerminate::default(),
@@ -418,7 +446,7 @@ where T: Bisectable,
     }
 }
 
-/// Bisection algorithm (for non-copy types).
+/// Bisection algorithm (for non-[`Copy`] types).
 pub struct BisectMut<'a, T, F, Term>
 where Term: Terminate<T> {
     f: F,
@@ -591,19 +619,36 @@ macro_rules! impl_ordfield_fXX {
 impl_ordfield_fXX!(f32);
 impl_ordfield_fXX!(f64);
 
-
-/// Implements the Algorithm 748 method of Alefeld, Potro and Shi to
-/// find a zero of the function f on the interval \[a,b\], where f(a)
-/// and f(b) have opposite signs.
+/// Find a root of the function `f` on the interval \[`a`, `b`\],
+/// where `f(a)` and `f(b)` have opposite signs using Algorithm 748 by
+/// Alefeld, Potro and Shi.
+///
+///
+/// # Example
+///
+/// ```
+/// use root1d::toms748;
+/// # fn main() -> Result<(), root1d::Error<f64>> {
+/// let f = |x| x * x - 2.;
+/// assert!((toms748(f, 0., 2.).atol(0.).rtol(1e-10).root()?
+///          - 2f64.sqrt()).abs() < 1e-15);
+/// # Ok(()) }
+/// ```
+///
+/// # Reference
+///
+/// G. E. Alefeld, F. A. Potra, and Y. Shi, “Algorithm 748:
+/// enclosing zeros of continuous functions,” ACM Trans. Math. Softw.,
+/// vol. 21, no. 3, pp. 327–344, Sep. 1995, doi: 10.1145/210089.210111.
 #[must_use]
 pub fn toms748<T,F>(f: F, a: T, b: T) -> Toms748<T, F, T::DefaultTerminate>
 where T: OrdField,
       F: FnMut(T) -> T {
     if !a.is_finite() {
-        panic!("root1d::root: a = {:?} must be finite", a)
+        panic!("root1d::toms748: a = {:?} must be finite", a)
     }
     if !b.is_finite() {
-        panic!("root1d::root: b = {:?} must be finite", b)
+        panic!("root1d::toms748: b = {:?} must be finite", b)
     }
     Toms748 { f, a, b,
               t: T::DefaultTerminate::default(),
@@ -612,6 +657,7 @@ where T: OrdField,
     }
 }
 
+/// [`toms748`] algorithm (for [`Copy`] types).
 pub struct Toms748<T, F, Term> {
     f: F,
     a: T,     // `a` and `b` are the bounds of the interval.
@@ -629,7 +675,7 @@ where T: OrdField, Term: Terminate<T> {
 }
 
 macro_rules! bracket_sign {
-    // Assume $a < $c < $b and $fa.$lt0() and $fb.gt0()
+    // Assume $a < $c < $b and $fa.$lt0() and $fb.$gt0()
     ($a: ident $b: ident $c: ident $d: ident,
      $fa: ident $fb: ident $fc: ident $fd: ident, $self: ident, $x: ident,
      $lt0: ident, $gt0: ident) => {
@@ -793,6 +839,8 @@ where T: OrdField,
         Ok(*x)
     }
 
+    /// Evaluate with 2 Newton iterations the root of the quadratic
+    /// interpolation polynomial on (x, f(x)) with x ∈ {a, b, d}.
     #[inline]
     #[must_use]
     fn newton_quadratic2(a: T, b: T, d: T, fa: T, fb: T, fd: T) -> T {
@@ -811,6 +859,8 @@ where T: OrdField,
         }
     }
 
+    /// Evaluate with 3 Newton iterations the root of the quadratic
+    /// interpolation polynomial on (x, f(x)) with x ∈ {a, b, d}.
     #[inline]
     #[must_use]
     fn newton_quadratic3(a: T, b: T, d: T, fa: T, fb: T, fd: T) -> T {
