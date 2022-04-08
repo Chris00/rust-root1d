@@ -983,6 +983,14 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn toms748_large_interval() -> R<f64> {
+        let f = |x| x * x - 2.;
+        let r = root1d::toms748(f, 1., 1e60).maxiter(130).root()?;
+        assert!((r - 2f64.sqrt()).abs() < 1e-15);
+        Ok(())
+    }
+
     // #[bench]
     // fn bisection_f64_speed(b: &mut Bencher) {
     //     let f = |x| x * x - 2.;
