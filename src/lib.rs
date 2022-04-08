@@ -965,28 +965,12 @@ mod rug {
 
 
 
-#[cfg(all(test, feature = "rug"))]
+#[cfg(test)]
 mod tests {
     use crate as root1d;
-    use rug::{Assign, Float};
     //use test::bench::Bencher;
 
     type R<T> = Result<(), root1d::Error<T>>;
-
-    #[test]
-    fn bisection() -> R<Float> {
-        for i in 2 .. 20 {
-            let a = Float::with_val(53, 0f64);
-            let b = Float::with_val(53, i as f64);
-            let f = |y: &mut Float, x: &Float| {
-                y.assign(x*x);
-                *y -= &b;
-            };
-            assert!((root1d::bisect_mut(f, &a, &b).root()?
-                     - b.sqrt()).abs() < 1e-15);
-        }
-        Ok(())
-    }
 
     #[test]
     fn toms748() -> R<f64> {
@@ -1004,4 +988,27 @@ mod tests {
     //     let f = |x| x * x - 2.;
     //     b.iter(|| root1d::toms748(f, 0., 100.));
     // }
+}
+
+#[cfg(all(test, feature = "rug"))]
+mod tests_rug {
+    use crate as root1d;
+    use rug::{Assign, Float};
+
+    type R<T> = Result<(), root1d::Error<T>>;
+
+    #[test]
+    fn bisection() -> R<Float> {
+        for i in 2 .. 20 {
+            let a = Float::with_val(53, 0f64);
+            let b = Float::with_val(53, i as f64);
+            let f = |y: &mut Float, x: &Float| {
+                y.assign(x*x);
+                *y -= &b;
+            };
+            assert!((root1d::bisect_mut(f, &a, &b).root()?
+                     - b.sqrt()).abs() < 1e-15);
+        }
+        Ok(())
+    }
 }
