@@ -639,21 +639,23 @@ where T: OrdField, Term: Terminate<T> {
 
 macro_rules! bracket_sign {
     // Assume $a < $c < $b and $fa.$lt0() and $fb.gt0()
-    ($a: ident $b: ident $c: expr,
-     $fa: ident $fb: ident $fc: ident, $self: ident, $x: ident,
+    ($a: ident $b: ident $c: ident $d: ident,
+     $fa: ident $fb: ident $fc: ident $fd: ident, $self: ident, $x: ident,
      $lt0: ident, $gt0: ident) => {
         if $fc.$lt0() {
             if $self.t.stop(&$c, &$b) {
                 $x.assign_mid(&$c, &$b);
                 return Ok(*$x)
             }
-            ($c, $b, $a, $fc, $fb, $fa)
+            $d = $a;  $fd = $fa;
+            $a = $c;  $fa = $fc; // `$b` and `$fb` unchanged
         } else if $fc.$gt0() {
             if $self.t.stop(&$a, &$c) {
                 $x.assign_mid(&$a, &$c);
                 return Ok(*$x)
             }
-            ($a, $c, $b, $fa, $fc, $fb)
+            $d = $b;  $fd = $fb;
+            $b = $c;  $fb = $fc; // `$a` and `$fa` unchanged
         } else if $fc.is_finite() {
             return Ok($c)
         } else {
@@ -662,21 +664,24 @@ macro_rules! bracket_sign {
     }
 }
 
-/// (a̅, b̅, d̅) = bracket!(a b c, fc)
-/// Assume f(a) < 0 < f(b).  Then f(a̅) < 0 < f(b̅).
+/// `bracket_neg_pos!(a b c d, fa fb fc fd, self, x)`: update `a`,
+/// `b`, and `d` (and the corresponding `fa`, `fb` and `fd`) according
+/// to the sign of `fc`.
+/// Assume f(a) < 0 < f(b).  The same invariant is true on exit.
 macro_rules! bracket_neg_pos {
-    ($a: ident $b: ident $c: expr, $fa: ident $fb: ident $fc: ident,
+    ($a: ident $b: ident $c: ident $d: ident,
+     $fa: ident $fb: ident $fc: ident $fd: ident,
      $self: ident, $x: ident) => {
-        bracket_sign!($a $b $c, $fa $fb $fc, $self, $x, lt0, gt0)
+        bracket_sign!($a $b $c $d, $fa $fb $fc $fd, $self, $x, lt0, gt0)
     }
 }
 
-/// (a̅, b̅, d̅) = bracket!(a b c, fc)
-/// Assume f(a) > 0 > f(b).  Then f(a̅) > 0 > f(b̅).
+/// Same as `bracket_neg_pos` but assume f(a) > 0 > f(b).
 macro_rules! bracket_pos_neg {
-    ($a: ident $b: ident $c: expr, $fa: ident $fb: ident $fc: ident,
+    ($a: ident $b: ident $c: ident $d: ident,
+     $fa: ident $fb: ident $fc: ident $fd: ident,
      $self: ident, $x: ident) => {
-        bracket_sign!($a $b $c, $fa $fb $fc, $self, $x, gt0, lt0)
+        bracket_sign!($a $b $c $d, $fa $fb $fc $fd, $self, $x, gt0, lt0)
     }
 }
 
@@ -709,12 +714,12 @@ where T: OrdField,
             b = self.a;
         };
         // a ≤ b, `a` and `b` finite by construction
-        let mut fa = (self.f)(a);
-        let mut fb = (self.f)(b);
         if self.t.stop(&a, &b) {
             x.assign_mid(&a, &b);
             return Ok(*x)
         }
+        let mut fa = (self.f)(a);
+        let mut fb = (self.f)(b);
         let mut d;
         let mut fd;
         let mut e;
@@ -725,12 +730,12 @@ where T: OrdField,
             ($bracket: ident) => {
                 body!(n=2, $bracket);
                 for _ in 1 .. self.maxiter {
-                    // 4.2.3
+                    // 4.2.3: (a, b, d, e) = (aₙ, bₙ, dₙ, eₙ)
                     let mut c = Self::ipzero(a, b, d, e, fa, fb, fd, fe);
                     if !c.is_inside_interval(&a, &b) {
                         c = Self::newton_quadratic2(a, b, d, fa, fb, fd);
                     };
-                    body!(step, a b c d, fa fb fd, $bracket);
+                    body!(step, c, $bracket);
                 }
                 if self.maxiter_err {
                     return Err(Error::MaxIter)
@@ -738,61 +743,55 @@ where T: OrdField,
                 x.assign_mid(&a, &b);
             };
             (n=2, $bracket: ident) => {
-                // 4.2.1 = 4.1.1
+                // 4.2.1 = 4.1.1: (a, b) = (a₁, b₁)
                 let c1 = a - (fa / (fb - fa)) * (b - a);
                 debug_assert!(c1.is_inside_interval(&a, &b));
-                // 4.2.2 = 4.1.2
+                // 4.2.2 = 4.1.2: (a, b, d) = (a₂, b₂, d₂)
                 let fc1 = (self.f)(c1);
-                let (a2, b2, d2, fa2, fb2, fd2)
-                    = $bracket!(a b c1, fa fb fc1, self, x);
+                $bracket!(a b c1 d, fa fb fc1 fd, self, x);
                 // 4.2.3
-                let c2 = Self::newton_quadratic2(a2, b2, d2, fa2, fb2, fd2);
-                body!(step, a2 b2 c2 d2, fa2 fb2 fd2, $bracket)
+                let c2 = Self::newton_quadratic2(a, b, d, fa, fb, fd);
+                body!(step, c2, $bracket)
             };
-            // Take (aₙ, bₙ, cₙ, dₙ) (see paper) and update the state
-            (step, $a: ident $b: ident $c: ident $d: ident,
-             $fa: ident $fb: ident $fd: ident,
-             $bracket: ident) => {
+            // Assume (a, b, d) = (aₙ, bₙ, dₙ) and (fa, fb, fd) =
+            // (f(aₙ), f(bₙ), f(dₙ)), take cₙ, and update the state.
+            (step, $c: ident, $bracket: ident) => {
+                let dist_an_bn = b - a;
                 // 4.2.4
                 let fc = (self.f)($c);
-                let e2 = $d;
-                let (a2, b2, d2, fa2, fb2, fd2)
-                    = $bracket!($a $b $c, $fa $fb fc, self, x);
+                e = d; // ẽₙ  (eₙ no longer used)
+                fe = fd; // f(ẽₙ)
+                // (a, b, d) = (ãₙ, b̃ₙ, d̃ₙ)
+                $bracket!(a b $c d, fa fb fc fd, self, x);
                 // 4.2.5
-                let fe2 = (self.f)(e2);
-                let mut c2 = Self::ipzero(a2, b2, d2, e2, fa2, fb2, fd2, fe2);
-                if !c2.is_inside_interval(&a2, &b2) {
-                    c2 = Self::newton_quadratic3(a2, b2, d2, fa2, fb2, fd2);
+                let mut c = Self::ipzero(a, b, d, e, fa, fb, fd, fe);
+                if !c.is_inside_interval(&a, &b) {
+                    c = Self::newton_quadratic3(a, b, d, fa, fb, fd);
                 };
-                // 4.2.6
-                let fc2 = (self.f)(c2);
-                let (a3, b3, d3, fa3, fb3, fd3)
-                    = $bracket!(a2 b2 c2, fa2 fb2 fc2, self, x);
-                // 4.2.7 = 4.1.5
-                let u = if fa3.abs() < fb3.abs() { a3 } else { b3 };
-                // 4.2.8 = 4.1.6
+                // 4.2.6: (a, b, d) = (a̅ₙ, b̅ₙ, d̅ₙ)
+                let fc = (self.f)(c);
+                $bracket!(a b c d, fa fb fc fd, self, x);
+                // 4.2.7 = 4.1.5: u = uₙ
+                let u = if fa.abs() < fb.abs() { a } else { b };
+                // 4.2.8 = 4.1.6: c = c̅ₙ
                 let fu = (self.f)(u);
-                let mut c3 = u - ((fu / (fb3 - fa3)) * (b3 - a3)).twice();
-                // 4.2.9 = 4.1.7
-                if (c3 - u).abs().twice() > b3 - a3 {
-                    c3.assign_mid(&a3, &b3);
+                let mut c = u - ((fu / (fb - fa)) * (b - a)).twice();
+                // 4.2.9 = 4.1.7: c = ĉₙ
+                if (c - u).abs().twice() > b - a {
+                    c.assign_mid(&a, &b);
                 }
-                // 4.2.10 = 4.1.8
-                let fc3 = (self.f)(c3);
-                let (a4, b4, d4, fa4, fb4, fd4)
-                    = $bracket!(a3 b3 c3, fa3 fb3 fc3, self, x);
+                // 4.2.10 = 4.1.8: (a, b, d) = (âₙ, b̂ₙ, d̂ₙ)
+                let fc = (self.f)(c);
+                e = d; // save d̅ₙ and anticipate eₙ₊₁ = d̅ₙ
+                fe = fd;
+                $bracket!(a b c d, fa fb fc fd, self, x);
                 // 4.2.11 = 4.1.9
-                if (b4 - a4).twice() < b - a { // μ = 1/2
-                    a = a4;  fa = fa4;
-                    b = b4;  fb = fb4;
-                    d = d4;  fd = fd4;
-                    e = d3;  fe = fd3;
-                } else {
-                    e = d4;  fe = fd4;
-                    c3.assign_mid(&a4, &b4); // reuse c3
-                    let fmid = (self.f)(c3);
-                    (a, b, d, fa, fb, fd)
-                        = $bracket!(a4 b4 c3, fa4 fb4 fmid, self, x);
+                // Nothing to do for the first case.
+                if (b - a).twice() >= dist_an_bn { // μ = 1/2
+                    e = d;  fe = fd; // eₙ₊₁ = d̂ₙ
+                    c.assign_mid(&a, &b); // reuse `c`
+                    let fmid = (self.f)(c);
+                    $bracket!(a b c d, fa fb fmid fd, self, x);
                 }
             }
         }
