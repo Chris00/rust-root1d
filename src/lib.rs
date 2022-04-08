@@ -27,7 +27,8 @@
 
 use std::{fmt::{self, Debug, Display, Formatter},
           mem::swap,
-          ops::{Neg, Add, Sub, Mul, Div},
+          ops::{Neg, Add, Sub, Mul, Div,
+                AddAssign, SubAssign, MulAssign, DivAssign},
           result::Result};
 
 /// Errors that may be returned by the root finding methods.
@@ -903,10 +904,80 @@ where T: OrdField,
 //
 // Toms 748 for non-copy types
 
-pub fn toms748_mut() {
+pub trait OrdFieldMut: Bisectable + PartialOrd
+    + AddAssign<Self>
+    + SubAssign<Self>
+    + MulAssign<Self>
+    + DivAssign<Self> {
+        /// Return `true` if `self` is the number 0.
+        fn is_zero(&self) -> bool;
 
+        /// Multiply in place `self` by 2.
+        fn twice(&mut self);
+
+        /// Set `self` to the absolute value of `x`.
+        fn assign_abs(&self, x: Self);
+
+        /// Return `true` if `self` ∈ \]`a`, `b`\[.  If `c` is NaN or
+        /// ±∞ (coming, say, from a division by 0), this function must
+        /// return `false`.  It may be assumed that `a <= b`.
+        #[inline]
+        fn is_inside_interval(&self, a: &Self, b: &Self) -> bool {
+            a < self && self < b
+        }
+    }
+
+/// Same as [`toms748`] for non-[`Copy`] types.
+pub fn toms748_mut<'a,T,F>(f: F, a: &'a T, b: &'a T)
+                           -> Toms748Mut<'a, T, F, T::DefaultTerminate>
+where T: OrdFieldMut,
+      F: FnMut(&mut T, &T) + 'a {
+    if !a.is_finite() {
+        panic!("root1d::toms748_mut: a = {:?} must be finite", a)
+    }
+    if !b.is_finite() {
+        panic!("root1d::toms748_mut: b = {:?} must be finite", b)
+    }
+    Toms748Mut { f,  a,  b,
+                 t: T::DefaultTerminate::default(),
+                 work: None,
+                 maxiter: 100,
+                 maxiter_err: false,
+    }
 }
 
+/// [`toms748_mut`] algorithm (for non-[`Copy`] types).
+pub struct Toms748Mut<'a, T, F, Term>
+where Term: Terminate<T> {
+    f: F,
+    a: &'a T,
+    b: &'a T,
+    t: Term,
+    work: Option<&'a mut (T,T,T)>, // temp vars
+    maxiter: usize,
+    maxiter_err: bool,
+}
+
+macro_rules! toms748mut_tr { ($tr: ty) => { Toms748Mut<'a, T, F, $tr> } }
+
+impl<'a, T, F, Term> Toms748Mut<'a, T, F, Term>
+where T: OrdFieldMut, Term: Terminate<T> {
+    impl_options!(Toms748Mut, toms748mut_tr,  f, a, b, work);
+
+    /// Provide variables that will be used as workspace when running
+    /// the [`toms748_mut`] function.
+    pub fn work(mut self, w: &'a mut (T, T, T)) -> Self {
+        self.work = Some(w);
+        self
+    }
+}
+
+impl<'a, T, F, Term> Toms748Mut<'a, T, F, Term>
+where T: OrdFieldMut,
+      F: FnMut(T) -> T,
+      Term: Terminate<T> {
+
+}
 
 ////////////////////////////////////////////////////////////////////////
 //
