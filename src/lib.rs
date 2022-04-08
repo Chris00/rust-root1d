@@ -971,23 +971,32 @@ mod tests {
     use rug::{Assign, Float};
     //use test::bench::Bencher;
 
+    type R<T> = Result<(), root1d::Error<T>>;
+
     #[test]
-    fn bisection() {
-        let f = |y: &mut Float, x: &Float| {
-            y.assign(x*x);
-            *y -= 2u8;
-        };
-        let a = Float::with_val(53, 0f64);
-        let b = Float::with_val(53, 2f64);
-        assert!((root1d::bisect_mut(f, &a, &b).root().unwrap()
-                 - 2f64.sqrt()).abs() < 1e-15);
+    fn bisection() -> R<Float> {
+        for i in 2 .. 20 {
+            let a = Float::with_val(53, 0f64);
+            let b = Float::with_val(53, i as f64);
+            let f = |y: &mut Float, x: &Float| {
+                y.assign(x*x);
+                *y -= &b;
+            };
+            assert!((root1d::bisect_mut(f, &a, &b).root()?
+                     - b.sqrt()).abs() < 1e-15);
+        }
+        Ok(())
     }
 
     #[test]
-    fn toms748() {
-        let f = |x| x*x - 2.;
-        assert!((root1d::toms748(f, 0., 2.).root().unwrap()
-                 - 2f64.sqrt()).abs() < 1e-15);
+    fn toms748() -> R<f64> {
+        for i in 2 .. 20 {
+            let c = i as f64;
+            let f = |x| x * x - c;
+            assert!((root1d::toms748(f, 0., c).atol(0.).rtol(1e-15).root()?
+                     - c.sqrt()).abs() < 1e-15);
+        }
+        Ok(())
     }
 
     // #[bench]
