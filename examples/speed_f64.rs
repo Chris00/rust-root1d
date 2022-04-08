@@ -8,16 +8,17 @@ use std::{cmp::Ordering,
 fn main() -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
     let mut sum = 0.;
 
+    let mut n = 0;
     for _ in 0..10_000 {
         for i in 2..100 {
             let c = i as f64;
-            let f = |x| x * x - c;
+            let f = |x| {n += 1; x * x - c};
             let r = bisect(f, 0., 100., 1e-10)?;
             sum += r;
         }
     }
 
-    println!("bisect_f64 sum: {:.12}", sum);
+    println!("bisect_f64 sum: {:.12} (#eval {})", sum, n);
     Ok(())
 }
 
