@@ -107,6 +107,9 @@ macro_rules! impl_options {
         }
 
         /// Change the termination criterion to `t`.
+        ///
+        /// You can use a closure `FnMut(&T, &T) -> bool` as the
+        /// termination criterion `t`.
         pub fn terminate<Tr>(self, t: Tr) -> $s_tr!(Tr)
         where Tr: Terminate<T> {
             // FIXME: type changing struct updating is experimental
@@ -136,6 +139,12 @@ macro_rules! impl_options {
     }
 }
 
+/// Enable using a closure as a termination criterion.
+impl<T,F> Terminate<T> for F
+where F: FnMut(&T, &T) -> bool,
+      T: Bisectable {
+    fn stop(&mut self, a: &T, b: &T) -> bool { self(a, b) }
+}
 
 /// Termination criterion based on a relative tolerance `rtol` an
 /// absolute tolerance `atol`.
@@ -987,6 +996,15 @@ mod tests {
     fn toms748_large_interval() -> R<f64> {
         let f = |x| x * x - 2.;
         let r = root1d::toms748(f, 1., 1e60).maxiter(130).root()?;
+        assert!((r - 2f64.sqrt()).abs() < 1e-15);
+        Ok(())
+    }
+
+    #[test]
+    fn toms748_no_term() -> R<f64> {
+        let f = |x| x * x - 2.;
+        let stop = |_: &f64, _: &f64| false;
+        let r = root1d::toms748(f, 1., 1e60).terminate(stop).root()?;
         assert!((r - 2f64.sqrt()).abs() < 1e-15);
         Ok(())
     }
