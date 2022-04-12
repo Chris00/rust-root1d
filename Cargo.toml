@@ -30,6 +30,10 @@ name = "speed"
 path = "examples/speed.rs"
 
 [[example]]
+name = "speed_toms748"
+path = "examples/speed_toms748.rs"
+
+[[example]]
 name = "speed_rug"
 path = "examples/speed_rug.rs"
 required-features = ["rug"]

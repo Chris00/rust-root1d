@@ -1,4 +1,4 @@
-TIME = time --format "%Uuser %Ssystem %Eelapsed %PCPU %Mk"
+TIME = time --format "    %Uuser %Ssystem %Eelapsed %PCPU %Mk"
 TMP ?= /tmp
 
 build doc:
@@ -8,12 +8,15 @@ examples:
 	cargo run --features="rug" --example basic
 
 bench:
+	@echo "Dune build"
 	-@$(TIME) dune build examples/speed.exe
 	-@$(TIME) _build/default/examples/speed.exe
 	@$(TIME) cargo build --profile release --features rug \
-	  --example speed --example speed_f64 --example speed_rug
+	  --example speed --example speed_toms748 --example speed_f64 \
+	  --example speed_rug
 	@$(TIME) target/release/examples/speed_rug
 	@$(TIME) target/release/examples/speed
+	@$(TIME) target/release/examples/speed_toms748
 	@$(TIME) target/release/examples/speed_f64
 
 flamegraph:
