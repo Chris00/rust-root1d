@@ -159,7 +159,11 @@ where F: FnMut(&T, &T) -> bool,
 /// struct embedding these resources and implement `Terminate<T>` and
 /// `SetTolerances<U>` for it (and, for convenience, `From<Tol<U>>`).
 #[derive(Clone)]
-pub struct Tol<U> { pub rtol: U,  pub atol: U }
+pub struct Tol<U> {
+    /// Relative tolerance.
+    pub rtol: U,
+    /// Absolute tolerance.
+    pub atol: U }
 
 macro_rules! impl_traits_tol {
     ($t: ty, $rtol: expr, $atol: expr) => {
@@ -469,6 +473,7 @@ where T: Bisectable, Term: Terminate<T> {
 
     /// Provide variables that will be used as workspace when running
     /// the bisection algorithm.
+    #[must_use]
     pub fn work(mut self, w: &'a mut (T, T, T)) -> Self {
         self.work = Some(w);
         self
@@ -495,6 +500,7 @@ where T: Bisectable,
     /// If the [`work`][`BisectMut::work`] method was not used,
     /// internal variables are constructed by cloning root, thereby
     /// inheriting its precision for example.
+    #[must_use]
     pub fn root_mut(&mut self, root: &mut T) -> Result<(), Error<T>> {
         let mut tmp;
         let (a, b, fx) = match &mut self.work {
@@ -565,6 +571,7 @@ where T: Bisectable,
     /// Return a root of the function `f` (see [`bisect_mut`]) or
     /// `Err(e)` to indicate that the function `f` returned a NaN
     /// value.
+    #[must_use]
     pub fn root(&mut self) -> Result<T, Error<T>> {
         let mut root = self.a.clone();
         self.root_mut(&mut root).and(Ok(root))
@@ -731,12 +738,14 @@ where T: OrdField,
     /// indicating that the function returned a NaN value or, if
     /// [`maxiter_err`][Toms748::maxiter_err] was turned on, that the
     /// maximum number of iterations was reached.
+    #[must_use]
     pub fn root(&mut self) -> Result<T, Error<T>> {
         let mut x = self.a;
         self.root_gen(&mut x)
     }
 
     /// Same as [`root`][Toms748::root] but store the result in `root`.
+    #[must_use]
     pub fn root_mut(&mut self, root: &mut T) -> Result<(), Error<T>> {
         self.root_gen(root).and(Ok(()))
     }
@@ -904,6 +913,8 @@ where T: OrdField,
 //
 // Toms 748 for non-copy types
 
+/// Requirements on the type `T` to be able to use [`toms748_mut`]
+/// algorithm.
 pub trait OrdFieldMut: Bisectable + PartialOrd
     + AddAssign<Self>
     + SubAssign<Self>
@@ -928,6 +939,7 @@ pub trait OrdFieldMut: Bisectable + PartialOrd
     }
 
 /// Same as [`toms748`] for non-[`Copy`] types.
+#[must_use]
 pub fn toms748_mut<'a,T,F>(f: F, a: &'a T, b: &'a T)
                            -> Toms748Mut<'a, T, F, T::DefaultTerminate>
 where T: OrdFieldMut,
@@ -966,6 +978,7 @@ where T: OrdFieldMut, Term: Terminate<T> {
 
     /// Provide variables that will be used as workspace when running
     /// the [`toms748_mut`] function.
+    #[must_use]
     pub fn work(mut self, w: &'a mut (T, T, T)) -> Self {
         self.work = Some(w);
         self
