@@ -897,15 +897,19 @@ where T: OrdField,
     #[inline]
     fn ipzero(a: T, b: T, c: T, d: T,
               fa: T, fb: T, fc: T, fd: T) -> T {
+        // See “J. Stoer and R. Bulirsch, Introduction to numerical
+        // analysis, 3rd ed. New York: Springer, 2002”, p. 43.
+        let a_b = (a - b) / (fb - fa);
+        let d31 = a_b * fb;
+        let q31 = a_b * fa;
+        let b_c = (b - c) / (fc - fb);
+        let d21 = b_c * fc;
+        let q21 = b_c * fb;
+        let d31_q21 = (d31 - q21) / (fc - fa);
+        let d32 = d31_q21 * fc;
+        let q32 = d31_q21 * fa;
         let q11 = (c - d) * fc / (fd - fc);
-        let q21 = (b - c) * fb / (fc - fb);
-        let q31 = (a - b) * fa / (fb - fa);
-        let d21 = (b - c) * fc / (fc - fb);
-        let d31 = (a - b) * fb / (fb - fa);
         let q22 = (d21 - q11) * fb / (fd - fb);
-        let d31_q21 = d31 - q21;
-        let q32 = d31_q21 * fa / (fc - fa);
-        let d32 = d31_q21 * fc / (fc - fa);
         let q33 = (d32 - q22) * fa / (fd - fa);
         a + (q31 + q32 + q33)
     }
