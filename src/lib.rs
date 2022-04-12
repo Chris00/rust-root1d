@@ -791,8 +791,10 @@ where T: OrdField,
             };
             (n=2, $bracket: ident) => {
                 // 4.2.1 = 4.1.1: (a, b) = (a₁, b₁)
-                let c1 = a - (fa / (fb - fa)) * (b - a);
-                debug_assert!(c1.is_inside_interval(&a, &b));
+                let mut c1 = a - (fa / (fb - fa)) * (b - a);
+                if !c1.is_inside_interval(&a, &b) {
+                    c1.assign_mid(&a, &b);
+                }
                 // 4.2.2 = 4.1.2: (a, b, d) = (a₂, b₂, d₂)
                 let fc1 = (self.f)(c1);
                 $bracket!(a b c1 d, fa fb fc1 fd, self, x);
