@@ -542,7 +542,7 @@ where T: Bisectable,
     /// (e.g., when the function `f` returned a NaN value).
     ///
     /// If the [`work`][`BisectMut::work`] method was not used,
-    /// internal variables are constructed by cloning root, thereby
+    /// internal variables are constructed by cloning `root`, thereby
     /// inheriting its precision for example.
     #[must_use]
     pub fn root_mut(&mut self, root: &mut T) -> Result<(), Error<T>> {
@@ -942,18 +942,18 @@ where T: OrdField,
 /// Requirements on the type `T` to be able to use [`toms748_mut`]
 /// algorithm.
 pub trait OrdFieldMut: Bisectable + PartialOrd
-    + AddAssign<Self>
-    + SubAssign<Self>
-    + MulAssign<Self>
-    + DivAssign<Self> {
+    + for<'a> AddAssign<&'a Self>
+    + for<'a> SubAssign<&'a Self>
+    + for<'a> MulAssign<&'a Self>
+    + for<'a> DivAssign<&'a Self> {
         /// Return `true` if `self` is the number 0.
         fn is_zero(&self) -> bool;
 
         /// Multiply in place `self` by 2.
         fn twice(&mut self);
 
-        /// Set `self` to the absolute value of `x`.
-        fn assign_abs(&self, x: Self);
+        /// Return `true` if |`self`| < |`other`|
+        fn lt_abs(&self, other: &Self) -> bool;
 
         /// Return `true` if `self` ∈ \]`a`, `b`\[.  If `c` is NaN or
         /// ±∞ (coming, say, from a division by 0), this function must
@@ -961,6 +961,13 @@ pub trait OrdFieldMut: Bisectable + PartialOrd
         #[inline]
         fn is_inside_interval(&self, a: &Self, b: &Self) -> bool {
             a < self && self < b
+        }
+
+        /// Return `true` if `self` and `other` have the same sign and
+        /// are both non-zero.
+        #[inline]
+        fn has_same_sign(&self, other: &Self) -> bool {
+            (self.gt0() && other.gt0()) || (self.lt0() && other.lt0())
         }
     }
 
@@ -991,7 +998,7 @@ where Term: Terminate<T> {
     a: &'a T,
     b: &'a T,
     t: Term,
-    workspace: Option<&'a mut (T,T,T,T,T,T,T,T,T,T,T,T,T,T,T)>, // temp vars
+    workspace: Option<&'a mut (T,T,T,T,T,T,T,T,T,T,T,T,T,T,T,T)>, // temp vars
     maxiter: usize,
     maxiter_err: bool,
 }
@@ -999,24 +1006,310 @@ where Term: Terminate<T> {
 macro_rules! toms748mut_tr { ($tr: ty) => { Toms748Mut<'a, T, F, $tr> } }
 
 impl<'a, T, F, Term> Toms748Mut<'a, T, F, Term>
-where T: OrdFieldMut, Term: Terminate<T> {
-    impl_options!(Toms748Mut, toms748mut_tr,  f, a, b, work);
+where T: OrdFieldMut,
+      Term: Terminate<T> {
     impl_options!(Toms748Mut, toms748mut_tr,  f, a, b, workspace);
 
     /// Provide variables that will be used as workspace when running
     /// the [`toms748_mut`] function.
     #[must_use]
-    pub fn work(mut self, w: &'a mut (T,T,T,T,T,T,T,T,T,T,T,T,T,T,T)) -> Self {
+    pub fn work(mut self, w: &'a mut (T,T,T,T,T,T,T,T,T,T,T,T,T,T,T,T)) -> Self {
         self.workspace = Some(w);
         self
     }
 }
 
+macro_rules! assign_mut { ($y: expr, $x: ident) => { $y.assign($x) } }
+macro_rules! ok_mut { ($root: expr) => { () } }
+
+/// `bracket_neg_pos!(a b c d, fa fb fc fd, self, x)`: update `a`,
+/// `b`, and `d` (and the corresponding `fa`, `fb` and `fd`) according
+/// to the sign of `fc`.
+/// Assume f(a) < 0 < f(b).  The same invariant is true on exit.
+macro_rules! bracket_neg_pos_mut {
+    ($a: ident $b: ident $c: ident $d: ident,
+     $fa: ident $fb: ident $fc: ident $fd: ident,
+     $self: ident, $x: ident) => {
+        bracket_sign!($a $b $c $d, $fa $fb $fc $fd, $self, $x,
+                      assign_mut, ok_mut, lt0, gt0)
+    }
+}
+
+/// Same as `bracket_neg_pos` but assume f(a) > 0 > f(b).
+macro_rules! bracket_pos_neg_mut {
+    ($a: ident $b: ident $c: ident $d: ident,
+     $fa: ident $fb: ident $fc: ident $fd: ident,
+     $self: ident, $x: ident) => {
+        bracket_sign!($a $b $c $d, $fa $fb $fc $fd, $self, $x,
+                      assign_mut, ok_mut, gt0, lt0)
+    }
+}
+
 impl<'a, T, F, Term> Toms748Mut<'a, T, F, Term>
 where T: OrdFieldMut,
-      F: FnMut(T) -> T,
+      F: FnMut(&mut T, &T),
       Term: Terminate<T> {
 
+    /// Return a root of the function `f` (see [`toms748_mut`]) or
+    /// `Err(e)` to indicate that the function `f` returned a NaN
+    /// value.
+    #[must_use]
+    pub fn root(&mut self) -> Result<T, Error<T>> {
+        let mut root = self.a.clone();
+        self.root_mut(&mut root).and(Ok(root))
+    }
+
+    /// Set `root` to a root of the function `f` (see [`toms748_mut`]).
+    /// Return `Some(err)` to indicate that the algorithm failed
+    /// (e.g., when the function `f` returned a NaN value).
+    ///
+    /// If the [`work`][`Toms748Mut::work`] method was not used,
+    /// internal variables are constructed by cloning `root`, thereby
+    /// inheriting its precision for example.
+    #[must_use]
+    pub fn root_mut(&mut self, root: &mut T) -> Result<(), Error<T>> {
+        let mut tmp;
+        let (a, b, c, d, e, fa, fb, fc, fd, fe,
+             t1, t2, t3, t4, t5, dist_an_bn) = match &mut self.workspace {
+            None => {
+                tmp = (root.clone(), root.clone(), root.clone(), root.clone(),
+                       root.clone(), root.clone(), root.clone(), root.clone(),
+                       root.clone(), root.clone(), root.clone(), root.clone(),
+                       root.clone(), root.clone(), root.clone(), root.clone());
+                (&mut tmp.0, &mut tmp.1, &mut tmp.2, &mut tmp.3,
+                 &mut tmp.4, &mut tmp.5, &mut tmp.6, &mut tmp.7,
+                 &mut tmp.8, &mut tmp.9, &mut tmp.10, &mut tmp.11,
+                 &mut tmp.12, &mut tmp.13, &mut tmp.14, &mut tmp.15)
+            }
+            Some(v) =>
+                (&mut v.0, &mut v.1, &mut v.2, &mut v.3,
+                 &mut v.4, &mut v.5, &mut v.6, &mut v.7,
+                 &mut v.8, &mut v.9, &mut v.10, &mut v.11,
+                 &mut v.12, &mut v.13, &mut v.14, &mut v.15)
+        };
+        if self.a <= self.b {
+            a.assign(self.a);
+            b.assign(self.b);
+        } else {
+            a.assign(self.b);
+            b.assign(self.a);
+        }
+        // a ≤ b, `a` and `b` finite by construction
+        if self.t.stop(&a, &b) {
+            root.assign_mid(a, b);
+            return Ok(())
+        }
+        macro_rules! body {
+            ($bracket: ident) => {
+                body!(n=2, $bracket);
+                for _ in 1 .. self.maxiter {
+                    // 4.2.3: (a, b, d, e) = (aₙ, bₙ, dₙ, eₙ)
+                    Self::ipzero(c, [t1, t2, t3, t4],
+                                 a, b, d, e, fa, fb, fd, fe);
+                    if !c.is_inside_interval(&a, &b) {
+                        Self::newton_quadratic2(c, [t1, t2, t3, t4, t5],
+                                                a, b, d, fa, fb, fd);
+                    };
+                    body!(step, $bracket);
+                }
+                if self.maxiter_err {
+                    return Err(Error::MaxIter)
+                }
+                root.assign_mid(&a, &b);
+            };
+            (n=2, $bracket: ident) => {
+                // 4.2.1 = 4.1.1: (a, b) = (a₁, b₁)
+                c.assign(a);
+                t1.assign(b);  *t1 -= a;  *t1 *= fa;
+                t2.assign(fb);  *t2 -= fa;  *t1 /= t2;
+                *c -= t1; // c = a - (fa / (fb - fa)) * (b - a);
+                if !c.is_inside_interval(&a, &b) {
+                    c.assign_mid(&a, &b);
+                }
+                // 4.2.2 = 4.1.2: (a, b, d) = (a₂, b₂, d₂)
+                (self.f)(fc, c);
+                $bracket!(a b c d, fa fb fc fd, self, root);
+                // 4.2.3
+                Self::newton_quadratic2(c, [t1, t2, t3, t4, t5],
+                                        a, b, d, fa, fb, fd);
+                body!(step, $bracket)
+            };
+            // Assume (a, b, c, d) = (aₙ, bₙ, cₙ, dₙ) and (fa, fb, fd) =
+            // (f(aₙ), f(bₙ), f(dₙ)), take cₙ, and update the state.
+            (step, $bracket: ident) => {
+                dist_an_bn.assign(b); *dist_an_bn -= a; // b - a
+                // 4.2.4
+                (self.f)(fc, c);
+                e.assign(d); // ẽₙ  (eₙ no longer used)
+                fe.assign(fd); // f(ẽₙ)
+                // (a, b, d) = (ãₙ, b̃ₙ, d̃ₙ)
+                $bracket!(a b c d, fa fb fc fd, self, root);
+                // 4.2.5
+                Self::ipzero(c, [t1, t2, t3, t4], a, b, d, e, fa, fb, fd, fe);
+                if !c.is_inside_interval(&a, &b) {
+                    Self::newton_quadratic3(c, [t1, t2, t3, t4, t5],
+                                            a, b, d, fa, fb, fd);
+                };
+                // 4.2.6: (a, b, d) = (a̅ₙ, b̅ₙ, d̅ₙ)
+                (self.f)(fc, c);
+                $bracket!(a b c d, fa fb fc fd, self, root);
+                // 4.2.7 = 4.1.5
+                if fa.lt_abs(fb) { c.assign(a) } else { c.assign(b) }; // c = uₙ
+                // 4.2.8 = 4.1.6
+                (self.f)(t1, c); // t1 = f(uₙ)
+                t1.twice();
+                t2.assign(b);  *t2 -= a;  *t1 *= t2;
+                t2.assign(fb);  *t2 -= fa;  *t1 /= t2; // t1 = uₙ - c̅ₙ
+                *c -= t1; // c = c̅ₙ = uₙ - 2 f(uₙ) * (b - a) / (fb - fa)
+                // 4.2.9 = 4.1.7: c = ĉₙ
+                t2.twice(); // t2 = 2(c̅ₙ - uₙ)
+                t3.assign(b);  *t3 -= a; // t3 = b - a
+                if t3.lt_abs(t2) {
+                    c.assign_mid(&a, &b);
+                }
+                // 4.2.10 = 4.1.8: (a, b, d) = (âₙ, b̂ₙ, d̂ₙ)
+                (self.f)(fc, c);
+                e.assign(d); // save d̅ₙ and anticipate eₙ₊₁ = d̅ₙ
+                fe.assign(fd);
+                $bracket!(a b c d, fa fb fc fd, self, root);
+                // 4.2.11 = 4.1.9
+                // Nothing to do for the first case.
+                t1.assign(b);  *t1 -= a;  t1.twice(); // t1 = 2(b - a)
+                if t1 >= dist_an_bn { // μ = 1/2
+                    e.assign(d);  fe.assign(fd); // eₙ₊₁ = d̂ₙ
+                    c.assign_mid(&a, &b); // reuse `c`
+                    (self.f)(fc, c);
+                    $bracket!(a b c d, fa fb fc fd, self, root);
+                }
+            }
+        }
+        act_on_sign_change_mut!(// `fa` and `fb` set to f(a) and f(b)
+            "root1d::toms748_mut", a, b, fa, fb, self.f, root,
+            { body!(bracket_neg_pos_mut); }, // f(a) < 0 < f(b)
+            { body!(bracket_pos_neg_mut); }); // f(a) > 0 > f(b)
+        Ok(())
+   }
+
+    fn newton_quadratic2<'b>(
+        r: &'b mut T, [fab, fabd, t1, den, p]: [&'b mut T; 5],
+        a: &'b T, b: &'b T, d: &'b T,
+        fa: &'b T, fb: &'b T, fd: &'b T) {
+        fab.assign(fa);  *fab -= fb; // fa - fb
+        t1.assign(a);  *t1 -= b; // a - b
+        *fab /= t1; // (fa - fb) / (a - b)
+        fabd.assign(fb);  *fabd -= fd;
+        t1.assign(b);  *t1 -= d;
+        *fabd /= t1; // f[b,d] = (fb - fd) / (b - d)
+        *fabd -= fab;
+        t1.assign(d);  *t1 -= a;
+        *fabd /= t1; // (fab - fbd) / (a - d)
+        den.assign(fab);
+        t1.assign(a);  *t1 += b;  *t1 *= fabd;
+        *den -= t1; // fab - fabd * (a + b)
+        if fabd.has_same_sign(&fa) {
+            r.assign(a); p.assign(fa)
+        } else {
+            r.assign(b); p.assign(fb)
+        }
+        macro_rules! update {
+            (r) => { // also change `p`
+                t1.assign(r);  t1.twice();  *t1 *= fabd;  *t1 += den;
+                *p /= t1;
+                *r -= p; // r := r - p / (den + fabd * 2r)
+            };
+            (p) => { // Does not change `r`
+                p.assign(fabd);
+                t1.assign(r);  *t1 -= b;  *p *= t1;
+                *p += fab; // p = fab + fabd * (r - b)
+                t1.assign(r);  *t1 -= a;  *p *= t1;
+                *p += fa; // fa + fab * (r - a) + fabd * (r - a) * (r - b)
+            };
+        }
+        update!(r);
+        update!(p);
+        update!(r);
+        if !r.is_inside_interval(&a, &b) {
+            r.assign(a);
+            t1.assign(fa);  *t1 /= fab;
+            *r -= t1; // a - fa / fab
+        }
+    }
+
+    fn newton_quadratic3<'b>(
+        r: &'b mut T, [fab, fabd, t1, den, p]: [&'b mut T; 5],
+        a: &'b T, b: &'b T, d: &'b T,
+        fa: &'b T, fb: &'b T, fd: &'b T) {
+        fab.assign(fa);  *fab -= fb; // fa - fb
+        t1.assign(a);  *t1 -= b; // a - b
+        *fab /= t1; // (fa - fb) / (a - b)
+        fabd.assign(fb);  *fabd -= fd;
+        t1.assign(b);  *t1 -= d;
+        *fabd /= t1; // f[b,d] = (fb - fd) / (b - d)
+        *fabd -= fab;
+        t1.assign(d);  *t1 -= a;
+        *fabd /= t1; // (fab - fbd) / (a - d)
+        den.assign(fab);
+        t1.assign(a);  *t1 += b;  *t1 *= fabd;
+        *den -= t1; // fab - fabd * (a + b)
+        if fabd.has_same_sign(&fa) {
+            r.assign(a); p.assign(fa)
+        } else {
+            r.assign(b); p.assign(fb)
+        }
+        macro_rules! update {
+            (r) => { // also change `p`
+                t1.assign(r);  t1.twice();  *t1 *= fabd;  *t1 += den;
+                *p /= t1;
+                *r -= p; // r := r - p / (den + fabd * 2r)
+            };
+            (p) => { // Does not change `r`
+                p.assign(fabd);
+                t1.assign(r);  *t1 -= b;  *p *= t1;
+                *p += fab; // p = fab + fabd * (r - b)
+                t1.assign(r);  *t1 -= a;  *p *= t1;
+                *p += fa; // fa + fab * (r - a) + fabd * (r - a) * (r - b)
+            };
+        }
+        update!(r);
+        update!(p);
+        update!(r);
+        update!(p);
+        update!(r);
+        if !r.is_inside_interval(&a, &b) {
+            r.assign(a);
+            t1.assign(fa);  *t1 /= fab;
+            *r -= t1; // a - fa / fab
+        }
+    }
+
+    /// Compute IP(0), the value at 0 of the inverse cubic interporation.
+    #[inline]
+    fn ipzero<'b>(r: &'b mut T, [t1, t2, t3, t4]: [&'b mut T; 4],
+                  a: &'b T, b: &'b T, c: &'b T, d: &'b T,
+                  fa: &'b T, fb: &'b T, fc: &'b T, fd: &'b T) {
+        // See the implementation of `ipzero` for Copy types.
+        r.assign(a);  *r -= b;
+        t1.assign(fb);  *t1 -= fa;  *r /= t1; // r = (a - b) / (fb - fa)
+        t1.assign(fb);  *t1 *= r; // t1 = d31 = (a - b) / (fb - fa) * fb
+        *r *= fa; // r = q31
+        t2.assign(b);  *t2 -= c;
+        t3.assign(fc);  *t3 -= fb;  *t2 /= t3; // t2 = b_c = (b - c) / (fc - fb)
+        t3.assign(fc);  *t3 *= t2; // t3 = d21
+        *t2 *= fb; // t2 = q21
+        *t1 -= t2; // t1 = d31 - q21  (t2 is free)
+        t2.assign(fc);  *t2 -= fa;  *t1 /= t2; // t1 = d31_q21
+        t2.assign(fc);  *t2 *= t1; // t2 = d32
+        *t1 *= fa; // t1 = q32
+        *r += t1; // r = q31 + q32  (t1 is free)
+        t1.assign(c);  *t1 -= d;  *t1 *= fc;
+        t4.assign(fd);  *t4 -= fc;  *t1 /= t4; // t1 = q11 = (c - d) * fc / (fd - fc)
+        *t3 -= t1;  *t3 *= fb; // t3 = (d21 - q11) * fb  (t1 free)
+        t1.assign(fd);  *t1 -= fb;  *t3 /= t1; // t3 = q22
+        *t2 -= t3;  *t2 *= fa; // t2 = (d32 - q22) * fa
+        t1.assign(fd);  *t1 -= fa;  *t2 /= t1; // t2 = q33
+        *r += t2;
+        *r += a;
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////
@@ -1028,7 +1321,7 @@ mod rug {
     use std::{cell::RefCell,
               cmp::Ordering};
     use rug::{Float, Rational, float::Round, ops::AssignRound};
-    use crate::{Bisectable, Terminate, Tol};
+    use crate::{Bisectable, Terminate, Tol, OrdFieldMut};
 
     /// Termination criterion based on tolerances for Rug.
     pub struct TolRug<T> {
@@ -1130,6 +1423,19 @@ mod rug {
                   *self += b;
                   *self /= 2u8;
               });
+
+    impl OrdFieldMut for Float {
+        #[inline]
+        fn is_zero(&self) -> bool { Float::is_zero(self) }
+
+        #[inline]
+        fn twice(&mut self) { *self *= 2 }
+
+        #[inline]
+        fn lt_abs(&self, x: &Self) -> bool {
+            self.cmp_abs(x) == Some(Ordering::Less)
+        }
+    }
 }
 
 
@@ -1198,4 +1504,20 @@ mod tests_rug {
         }
         Ok(())
     }
+
+    #[test]
+    fn toms748() -> R<Float> {
+        for i in 2 .. 20 {
+            let a = Float::with_val(53, 0f64);
+            let b = Float::with_val(53, i as f64);
+            let f = |y: &mut Float, x: &Float| {
+                y.assign(x * x);
+                *y -= &b;
+            };
+            assert!((root1d::toms748_mut(f, &a, &b).root()?
+                     - b.sqrt()).abs() < 1e-15);
+        }
+        Ok(())
+    }
+
 }
