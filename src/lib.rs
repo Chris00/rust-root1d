@@ -700,28 +700,32 @@ macro_rules! bracket_sign {
     // Assume $a < $c < $b and $fa.$lt0() and $fb.$gt0()
     ($a: ident $b: ident $c: ident $d: ident,
      $fa: ident $fb: ident $fc: ident $fd: ident, $self: ident, $x: ident,
-     $lt0: ident, $gt0: ident) => {
+     $assign: ident, $ok_val: ident, $lt0: ident, $gt0: ident) => {
         if $fc.$lt0() {
             if $self.t.stop(&$c, &$b) {
                 $x.assign_mid(&$c, &$b);
-                return Ok(*$x)
+                return Ok($ok_val!(*$x))
             }
-            $d = $a;  $fd = $fa;
-            $a = $c;  $fa = $fc; // `$b` and `$fb` unchanged
+            $assign!($d, $a);  $assign!($fd, $fa);
+            $assign!($a, $c);  $assign!($fa, $fc); // `$b` and `$fb` unchanged
         } else if $fc.$gt0() {
             if $self.t.stop(&$a, &$c) {
                 $x.assign_mid(&$a, &$c);
-                return Ok(*$x)
+                return Ok($ok_val!(*$x))
             }
-            $d = $b;  $fd = $fb;
-            $b = $c;  $fb = $fc; // `$a` and `$fa` unchanged
+            $assign!($d, $b);  $assign!($fd, $fb);
+            $assign!($b, $c);  $assign!($fb, $fc); // `$a` and `$fa` unchanged
         } else if $fc.is_finite() {
-            return Ok($c)
+            $assign!(*$x, $c);
+            return Ok($ok_val!($c))
         } else {
-            return Err(Error::NotFinite{ x: $c, fx: $fc })
+            return_notfinite!($c, $fc)
         }
     }
 }
+
+macro_rules! assign_copy { ($y: expr, $x: ident) => { $y = $x } }
+macro_rules! ok_copy { ($root: expr) => { $root } }
 
 /// `bracket_neg_pos!(a b c d, fa fb fc fd, self, x)`: update `a`,
 /// `b`, and `d` (and the corresponding `fa`, `fb` and `fd`) according
@@ -731,7 +735,8 @@ macro_rules! bracket_neg_pos {
     ($a: ident $b: ident $c: ident $d: ident,
      $fa: ident $fb: ident $fc: ident $fd: ident,
      $self: ident, $x: ident) => {
-        bracket_sign!($a $b $c $d, $fa $fb $fc $fd, $self, $x, lt0, gt0)
+        bracket_sign!($a $b $c $d, $fa $fb $fc $fd, $self, $x,
+                      assign_copy, ok_copy, lt0, gt0)
     }
 }
 
@@ -740,7 +745,8 @@ macro_rules! bracket_pos_neg {
     ($a: ident $b: ident $c: ident $d: ident,
      $fa: ident $fb: ident $fc: ident $fd: ident,
      $self: ident, $x: ident) => {
-        bracket_sign!($a $b $c $d, $fa $fb $fc $fd, $self, $x, gt0, lt0)
+        bracket_sign!($a $b $c $d, $fa $fb $fc $fd, $self, $x,
+                      assign_copy, ok_copy, gt0, lt0)
     }
 }
 
