@@ -445,7 +445,7 @@ where T: Bisectable,
     }
     BisectMut { f,  a,  b,
                 t: T::DefaultTerminate::default(),
-                work: None,
+                workspace: None,
                 maxiter: 100,
                 maxiter_err: false,
     }
@@ -458,7 +458,7 @@ where Term: Terminate<T> {
     a: &'a T,
     b: &'a T,
     t: Term,
-    work: Option<&'a mut (T,T,T)>, // temp vars
+    workspace: Option<&'a mut (T,T,T)>, // temp vars
     maxiter: usize,
     maxiter_err: bool,
 }
@@ -469,13 +469,13 @@ macro_rules! bisect_mut_tr {
 
 impl<'a, T, F, Term> BisectMut<'a, T, F, Term>
 where T: Bisectable, Term: Terminate<T> {
-    impl_options!(BisectMut, bisect_mut_tr,  f, a, b, work);
+    impl_options!(BisectMut, bisect_mut_tr,  f, a, b, workspace);
 
     /// Provide variables that will be used as workspace when running
     /// the bisection algorithm.
     #[must_use]
-    pub fn work(mut self, w: &'a mut (T, T, T)) -> Self {
-        self.work = Some(w);
+    pub fn work(mut self, w: &'a mut (T,T,T)) -> Self {
+        self.workspace = Some(w);
         self
     }
 }
@@ -503,14 +503,12 @@ where T: Bisectable,
     #[must_use]
     pub fn root_mut(&mut self, root: &mut T) -> Result<(), Error<T>> {
         let mut tmp;
-        let (a, b, fx) = match &mut self.work {
+        let (a, b, fx) = match &mut self.workspace {
             None => {
                 tmp = (root.clone(), root.clone(), root.clone());
                 (&mut tmp.0, &mut tmp.1, &mut tmp.2)
             }
-            Some(v) => {
-                (&mut v.0, &mut v.1, &mut v.2)
-            }
+            Some(v) => (&mut v.0, &mut v.1, &mut v.2)
         };
         a.assign(self.a);
         b.assign(self.b);
@@ -958,7 +956,7 @@ where T: OrdFieldMut,
     }
     Toms748Mut { f,  a,  b,
                  t: T::DefaultTerminate::default(),
-                 work: None,
+                 workspace: None,
                  maxiter: 100,
                  maxiter_err: false,
     }
@@ -971,7 +969,7 @@ where Term: Terminate<T> {
     a: &'a T,
     b: &'a T,
     t: Term,
-    work: Option<&'a mut (T,T,T)>, // temp vars
+    workspace: Option<&'a mut (T,T,T,T,T,T,T,T,T,T,T,T,T,T,T)>, // temp vars
     maxiter: usize,
     maxiter_err: bool,
 }
@@ -981,12 +979,13 @@ macro_rules! toms748mut_tr { ($tr: ty) => { Toms748Mut<'a, T, F, $tr> } }
 impl<'a, T, F, Term> Toms748Mut<'a, T, F, Term>
 where T: OrdFieldMut, Term: Terminate<T> {
     impl_options!(Toms748Mut, toms748mut_tr,  f, a, b, work);
+    impl_options!(Toms748Mut, toms748mut_tr,  f, a, b, workspace);
 
     /// Provide variables that will be used as workspace when running
     /// the [`toms748_mut`] function.
     #[must_use]
-    pub fn work(mut self, w: &'a mut (T, T, T)) -> Self {
-        self.work = Some(w);
+    pub fn work(mut self, w: &'a mut (T,T,T,T,T,T,T,T,T,T,T,T,T,T,T)) -> Self {
+        self.workspace = Some(w);
         self
     }
 }
