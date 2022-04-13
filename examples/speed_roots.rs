@@ -1,20 +1,25 @@
-use std::error::Error;
+use std::{cell::RefCell, error::Error};
 use roots;
 
 fn main() -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
     let mut sum = 0.;
 
+    // Necessary to use interior mutability as `find_root_brent` only
+    // accepts Fn and not FnMut closures.
+    let n = RefCell::new(0);
     for _ in 0..10_000 {
         for i in 2..100 {
             let c = i as f64;
-            let f = |x| x * x - c;
+            let f = |x| {
+                *n.borrow_mut() += 1;
+                x * x - c};
             let mut tol = Tol { rtol: 1e-10, atol: 0., maxiter: 100 };
-            let r = roots::find_root_regula_falsi(0., 100., &f, &mut tol)?;
+            let r = roots::find_root_brent(0., 100., &f, &mut tol)?;
             sum += r;
         }
     }
 
-    println!("[roots] sum: {:.12}", sum);
+    println!("roots sum: {:.12} (#eval {})", sum, n.take());
     Ok(())
 }
 

@@ -34,8 +34,13 @@ name = "speed_toms748"
 path = "examples/speed_toms748.rs"
 
 [[example]]
-name = "speed_rug"
-path = "examples/speed_rug.rs"
+name = "speed_rug_bisect"
+path = "examples/speed_rug_bisect.rs"
+required-features = ["rug"]
+
+[[example]]
+name = "speed_rug_toms748"
+path = "examples/speed_rug_toms748.rs"
 required-features = ["rug"]
 
 [[example]]
