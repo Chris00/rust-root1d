@@ -489,6 +489,50 @@ macro_rules! return_notfinite {
     }
 }
 
+/// Check that `$fa` and `$fb` have opposite signs or panic.  If
+/// `$fa < 0 < $fb`, execute `$do_neg_pos`; if `$fa > 0 > $fb`,
+/// execute `$do_pos_neg`.
+/// `$fa` and `$fb` are the variables in which to store the values of
+/// `f` at `$a` and `$b`.  They can be the same.
+macro_rules! act_on_sign_change_mut {
+    ($name: expr, $a: ident, $b:ident, $fa: ident, $fb: ident, $f: expr,
+     $root: ident, $do_neg_pos: block, $do_pos_neg: block) => {
+        $f($fa, $a);
+        if $fa.lt0() {
+            $f($fb, $b);
+            if $fb.gt0() {
+                $do_neg_pos
+            } else if $fb.lt0() {
+                panic!("{}: no sign change, f({:?}) < 0 and f({:?}) < 0.",
+                       $name, $a, $b)
+            } else if $fb.is_finite() { // f(b) = 0
+                $root.assign($b);
+                return Ok(())
+            } else {
+                return_notfinite!($b, $fb)
+            }
+        } else if $fa.gt0() {
+            $f($fb, $b);
+            if $fb.lt0() {
+                $do_pos_neg
+            } else if $fb.gt0() {
+                panic!("{}: no sign change, f({:?}) > 0 and f({:?}) > 0.",
+                       $name, $a, $b)
+            } else if $fb.is_finite() { // f(b) = 0
+                $root.assign($b);
+                return Ok(())
+            } else {
+                return_notfinite!($b, $fb)
+            }
+        } else if $fa.is_finite() { // f(a) = 0
+            $root.assign($a);
+            return Ok(());
+        } else {
+            return_notfinite!($a, $fa);
+        }
+    }
+}
+
 impl<'a, T, F, Term> BisectMut<'a, T, F, Term>
 where T: Bisectable,
       F: FnMut(&mut T, &T),
@@ -512,38 +556,10 @@ where T: Bisectable,
         };
         a.assign(self.a);
         b.assign(self.b);
-        (self.f)(fx, a);
-        if fx.lt0() {
-            (self.f)(fx, b);
-            if fx.gt0() {
-            } else if fx.lt0() {
-                panic!("root1d::bisect: no change of sign, \
-                        f({:?}) < 0 and f({:?}) < 0.", a, b)
-            } else if fx.is_finite() { // f(b) = 0
-                root.assign(b);
-                return Ok(())
-            } else {
-                return_notfinite!(b, fx)
-            }
-        } else if fx.gt0() {
-            (self.f)(fx, b);
-            if fx.lt0() {
-                swap(a, b);
-            } else if fx.gt0() {
-                panic!("root1d::bisect: no change of sign, \
-                        f({:?}) > 0 and f({:?}) > 0.", a, b)
-            } else if fx.is_finite() { // f(b) = 0
-                root.assign(b);
-                return Ok(())
-            } else {
-                return_notfinite!(b, fx)
-            }
-        } else if fx.is_finite() { // f(a) = 0
-            root.assign(a);
-            return Ok(());
-        } else {
-            return_notfinite!(a, fx);
-        }
+        act_on_sign_change_mut!(
+            "root1d::bisect_mut", a, b, fx, fx, self.f, root,
+            {},
+            { swap(a, b); });
         // f(a) < 0 < f(b)
         for _ in 0 .. self.maxiter {
             root.assign_mid(a, b);
