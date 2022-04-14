@@ -1,11 +1,12 @@
 use std::error::Error;
 use std::f64::consts::PI;
-use root1d::{bisect, bisect_mut};
+use root1d::{bisect, bisect_mut, toms748};
 use rug::{Assign, Float, float::Constant, ops::CompleteRound};
 
 fn main() -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
     let f1 = |x: f64| x.sin() - 0.5 * x;
-    println!("f1: {}", bisect(f1, PI / 2., PI).atol(0.).root()?);
+    println!("f1: {} (bisect)", bisect(f1, PI / 2., PI).atol(0.).root()?);
+    println!("f1: {} (toms748)", toms748(f1, PI / 2., PI).atol(0.).root()?);
 
     let pi = Float::with_val(63, Constant::Pi);
     let a = (&pi / 2f64).complete(63);
