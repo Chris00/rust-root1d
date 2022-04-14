@@ -4,22 +4,26 @@ use roots;
 fn main() -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
     let mut sum = 0.;
 
+    let mut n = 0;
     // Necessary to use interior mutability as `find_root_brent` only
     // accepts Fn and not FnMut closures.
-    let n = RefCell::new(0);
+    let neval = RefCell::new(0);
     for _ in 0..10_000 {
         for i in 2..100 {
+            n += 1;
             let c = i as f64;
             let f = |x| {
-                *n.borrow_mut() += 1;
-                x * x - c};
+                *neval.borrow_mut() += 1;
+                x * x - c
+            };
             let mut tol = Tol { rtol: 1e-10, atol: 0., maxiter: 100 };
-            let r = roots::find_root_brent(0., 100., &f, &mut tol)?;
+            let r = roots::find_root_secant(0., 100., &f, &mut tol)?;
             sum += r;
         }
     }
 
-    println!("roots sum: {:.12} (#eval {})", sum, n.take());
+    println!("roots sum: {:.12} (#eval {:.2})", sum,
+             neval.take() as f64 / n as f64);
     Ok(())
 }
 
