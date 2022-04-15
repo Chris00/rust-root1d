@@ -75,9 +75,9 @@ pub trait Terminate<T> {
 /// Indicate that the type `Self` uses relative and absolute
 /// tolerances that can be updated from type `U`.
 pub trait SetTolerances<U> {
-    /// Set the relative tolerance.  Must panic if `rtol` is invalid.
+    /// Set the relative tolerance.  Must panic if `rtol` is ≤ 0.
     fn set_rtol(&mut self, rtol: U);
-    /// Set the absolute tolerance.  Must panic if `atol` is invalid.
+    /// Set the absolute tolerance.  Must panic if `atol` is < 0.
     fn set_atol(&mut self, atol: U);
 }
 
@@ -125,6 +125,8 @@ macro_rules! impl_options {
         /// Set the the relative tolerance termination criterion (that
         /// implements [`SetTolerances`]), leaving unchanged the value
         /// of the absolute tolerance.
+        ///
+        /// Panics if `rtol` is ≤ 0.
         pub fn rtol<U>(mut self, rtol: U) -> Self
         where Term: SetTolerances<U> {
             self.t.set_rtol(rtol);
@@ -133,6 +135,8 @@ macro_rules! impl_options {
         /// Set the the absolute tolerance termination criterion (that
         /// implements [`SetTolerances`]), leaving unchanged the value
         /// of the relative tolerance.
+        ///
+        /// Panics if `atol` is < 0.
         pub fn atol<U>(mut self, atol: U) -> Self
         where Term: SetTolerances<U> {
             self.t.set_atol(atol);
@@ -181,9 +185,13 @@ macro_rules! impl_traits_tol {
         // non-copy types `$t`.
         impl SetTolerances<$t> for Tol<$t> {
             fn set_rtol(&mut self, rtol: $t) {
+                if rtol <= 0. { panic!("root1d<{}>: rtol = {:e} ≤ 0",
+                                      stringify!($t), rtol) }
                 self.rtol = rtol;
             }
             fn set_atol(&mut self, atol: $t) {
+                if atol < 0. { panic!("root1d<{}>: atol = {:e} < 0",
+                                      stringify!($t), atol) }
                 self.atol = atol;
             }
         }
@@ -1379,9 +1387,15 @@ mod rug {
     where Float: AssignRound<U, Round = Round, Ordering = Ordering> {
         fn set_rtol(&mut self, rtol: U) {
             self.rtol.assign_round(rtol, Round::Nearest);
+            if self.rtol <= 0 {
+                panic!("root1d<rug::Float>: rtol = {:e} ≤ 0", self.rtol)
+            }
         }
         fn set_atol(&mut self, atol: U) {
             self.atol.assign_round(atol, Round::Nearest);
+            if self.atol < 0 {
+                panic!("root1d<rug::Float>: atol = {:e} < 0", self.atol)
+            }
         }
     }
 
@@ -1418,10 +1432,16 @@ mod rug {
     impl<U> super::SetTolerances<U> for TolRug<Rational>
     where Rational: rug::Assign<U> {
         fn set_rtol(&mut self, rtol: U) {
-            <Rational as rug::Assign<U>>::assign(&mut self.rtol, rtol)
+            <Rational as rug::Assign<U>>::assign(&mut self.rtol, rtol);
+            if self.rtol <= 0 {
+                panic!("root1d<rug::Rational>: rtol = {} ≤ 0", self.rtol)
+            }
         }
         fn set_atol(&mut self, atol: U) {
-            <Rational as rug::Assign<U>>::assign(&mut self.atol, atol)
+            <Rational as rug::Assign<U>>::assign(&mut self.atol, atol);
+            if self.atol < 0 {
+                panic!("root1d<rug::Rational>: atol = {} < 0", self.atol)
+            }
         }
     }
 }
