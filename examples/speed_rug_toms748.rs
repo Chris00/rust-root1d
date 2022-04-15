@@ -3,7 +3,7 @@ use root1d::{toms748_mut};
 use rug::{Assign, Float};
 
 fn main() -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
-    let prec = 100;
+    let prec = 53;
     let mut sum = Float::with_val(prec, 0_f64);
 
     let mut n = 0;
