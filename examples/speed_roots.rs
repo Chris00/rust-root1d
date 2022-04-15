@@ -1,4 +1,4 @@
-use std::{cell::RefCell, error::Error};
+use std::{cell::Cell, error::Error};
 use roots;
 
 fn main() -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
@@ -7,17 +7,17 @@ fn main() -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
     let mut n = 0;
     // Necessary to use interior mutability as `find_root_brent` only
     // accepts Fn and not FnMut closures.
-    let neval = RefCell::new(0);
+    let neval = Cell::new(0);
     for _ in 0..10_000 {
         for i in 2..100 {
             n += 1;
             let c = i as f64;
             let f = |x| {
-                *neval.borrow_mut() += 1;
+                neval.set(neval.get() + 1);
                 x * x - c
             };
             let mut tol = Tol { rtol: 1e-10, atol: 0., maxiter: 100 };
-            let r = roots::find_root_secant(0., 100., &f, &mut tol)?;
+            let r = roots::find_root_brent(0., 100., &f, &mut tol)?;
             sum += r;
         }
     }
