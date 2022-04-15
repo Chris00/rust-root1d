@@ -1204,9 +1204,9 @@ where T: OrdFieldMut,
                 t2.assign(fb);  *t2 -= fa;  *t1 /= t2; // t1 = uₙ - c̅ₙ
                 *c -= t1; // c = c̅ₙ = uₙ - 2 f(uₙ) * (b - a) / (fb - fa)
                 // 4.2.9 = 4.1.7: c = ĉₙ
-                t2.twice(); // t2 = 2(c̅ₙ - uₙ)
-                t3.assign(b);  *t3 -= a; // t3 = b - a
-                if t3.lt_abs(t2) {
+                t1.twice(); // t1 = 2(uₙ - c̅ₙ)
+                t2.assign(b);  *t2 -= a; // t2 = b - a
+                if t2.lt_abs(t1) {
                     c.assign_mid(&a, &b);
                 }
                 // 4.2.10 = 4.1.8: (a, b, d) = (âₙ, b̂ₙ, d̂ₙ)
