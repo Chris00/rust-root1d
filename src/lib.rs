@@ -4,11 +4,10 @@
 //! functions from ℝ to ℝ.
 //!
 //! ```
-//! use root1d::bisect;
-//! # use std::error::Error;
-//! # fn main() -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
-//! assert!((bisect(|x| x*x - 2., 0., 2.).atol(0.).root()?
-//!          - 2f64.sqrt()).abs() < 1e-15);
+//! use root1d::toms748;
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! assert!((toms748(|x| x*x - 2., 0., 2.).root()?
+//!          - 2f64.sqrt()).abs() < 1e-12);
 //! # Ok(()) }
 //! ```
 //!
@@ -275,6 +274,7 @@ bisectable_fXX!(f32);
 /// error by calling [`maxiter_err`][Bisect::maxiter]`(true)`).
 /// Nothing is computed until the [`root`][Bisect::root] or
 /// [`root_mut`][Bisect::root_mut] method is used on the result.
+/// See [`Bisect`]'s methods for more options.
 ///
 /// The bisection algorithm is quite slow be requires only a few
 /// things from the type `T`.  Specifically, it requires that
@@ -425,6 +425,7 @@ where T: Bisectable + Copy,
 /// error by calling [`maxiter_err`][BisectMut::maxiter]`(true)`).
 /// Nothing is computed until the [`root`][BisectMut::root] or
 /// [`root_mut`][BisectMut::root_mut] method is used on the result.
+/// See [`BisectMut`]'s methods for more options.
 ///
 /// This method requires that [`Bisectable`] is implemented for the
 /// type `T` which provides the default termination criteria.
@@ -653,6 +654,9 @@ impl_ordfield_fXX!(f64);
 /// where `f(a)` and `f(b)` have opposite signs using Algorithm 748 by
 /// Alefeld, Potro and Shi.
 ///
+/// The default maximum number of iterations is 100 and can be changed
+/// using the [`maxiter`][Toms748::maxiter] method.  See the methods
+/// of [`Toms748`] for more options.
 ///
 /// # Example
 ///
