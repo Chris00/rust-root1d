@@ -1286,34 +1286,14 @@ mod rug {
 
     macro_rules! impl_rug {
         ($t: ty, $new_t: ident, $rtol: expr, $atol: expr,
-         $is_finite: ident, $assign_mid: item) => {
-            impl<U> From<Tol<U>> for TolRug<$t>
-            where $t: AssignRound<U, Round = Round, Ordering = Ordering> {
-                fn from(t: Tol<U>) -> Self {
-                    let mut rtol = $new_t!();
-                    rtol.assign_round(t.rtol, Round::Nearest);
-                    let mut atol = $new_t!();
-                    atol.assign_round(t.atol, Round::Nearest);
-                    TolRug { rtol, atol,
-                             tmp1: RefCell::new($new_t!()),
-                             tmp2: RefCell::new($new_t!()), }
-                }
-            }
+         $is_finite: ident, $assign_mid: item, $is_zero: ident,
+         $less: expr) => {
             impl Default for TolRug<$t> {
                 fn default() -> Self {
                     TolRug { rtol: $rtol,
                              atol: $atol,
                              tmp1: RefCell::new($new_t!()),
                              tmp2: RefCell::new($new_t!()), }
-                }
-            }
-            impl<U> super::SetTolerances<U> for TolRug<$t>
-            where $t: AssignRound<U, Round = Round, Ordering = Ordering> {
-                fn set_rtol(&mut self, rtol: U) {
-                    self.rtol.assign_round(rtol, Round::Nearest);
-                }
-                fn set_atol(&mut self, atol: U) {
-                    self.atol.assign_round(atol, Round::Nearest);
                 }
             }
             impl Terminate<$t> for TolRug<$t> {
@@ -1351,11 +1331,25 @@ mod rug {
                 #[inline]
                 $assign_mid
             }
+
+            impl OrdFieldMut for $t {
+                #[inline]
+                fn is_zero(&self) -> bool { $is_zero!(self) }
+
+                #[inline]
+                fn twice(&mut self) { *self *= 2 }
+
+                #[inline]
+                fn lt_abs(&self, x: &Self) -> bool {
+                    self.cmp_abs(x) == $less
+                }
+            }
         }
     }
 
     macro_rules! float_new { () => { Float::new(53) } }
     macro_rules! float_is_finite { ($s: expr) => { Float::is_finite($s) } }
+    macro_rules! float_is_zero { ($s: expr) => { Float::is_zero($s) } }
     impl_rug!(Float, float_new,
               Float::with_val(53, 1e-16),
               Float::with_val(53, 1e-12),
@@ -1364,10 +1358,38 @@ mod rug {
                   self.assign(a);
                   *self += b;
                   *self /= 2i8;
-              });
+              },
+              float_is_zero,
+              Some(Ordering::Less));
+
+    impl<U> From<Tol<U>> for TolRug<Float>
+    where Float: AssignRound<U, Round = Round, Ordering = Ordering> {
+        fn from(t: Tol<U>) -> Self {
+            let mut rtol = float_new!();
+            rtol.assign_round(t.rtol, Round::Nearest);
+            let mut atol = float_new!();
+            atol.assign_round(t.atol, Round::Nearest);
+            TolRug { rtol, atol,
+                     tmp1: RefCell::new(float_new!()),
+                     tmp2: RefCell::new(float_new!()), }
+        }
+    }
+
+    impl<U> super::SetTolerances<U> for TolRug<Float>
+    where Float: AssignRound<U, Round = Round, Ordering = Ordering> {
+        fn set_rtol(&mut self, rtol: U) {
+            self.rtol.assign_round(rtol, Round::Nearest);
+        }
+        fn set_atol(&mut self, atol: U) {
+            self.atol.assign_round(atol, Round::Nearest);
+        }
+    }
 
     macro_rules! rational_new { () => { Rational::new() } }
     macro_rules! rational_is_finite { ($s: ident) => { true } }
+    macro_rules! rational_is_zero { ($s: ident) => {
+        $s.cmp0() == Ordering::Equal
+    } }
     impl_rug!(Rational, rational_new,
               (1, 1000_0000_0000_0000u64).into(),
               (1, 1000_0000_0000_0000u64).into(),
@@ -1376,18 +1398,30 @@ mod rug {
                   self.assign(a);
                   *self += b;
                   *self /= 2u8;
-              });
+              },
+              rational_is_zero,
+              Ordering::Less);
 
-    impl OrdFieldMut for Float {
-        #[inline]
-        fn is_zero(&self) -> bool { Float::is_zero(self) }
+    impl<U> From<Tol<U>> for TolRug<Rational>
+    where Rational: rug::Assign<U> {
+        fn from(t: Tol<U>) -> Self {
+            let mut rtol = rational_new!();
+            <Rational as rug::Assign<U>>::assign(&mut rtol, t.rtol);
+            let mut atol = rational_new!();
+            <Rational as rug::Assign<U>>::assign(&mut atol, t.atol);
+            TolRug { rtol, atol,
+                     tmp1: RefCell::new(rational_new!()),
+                     tmp2: RefCell::new(rational_new!()), }
+        }
+    }
 
-        #[inline]
-        fn twice(&mut self) { *self *= 2 }
-
-        #[inline]
-        fn lt_abs(&self, x: &Self) -> bool {
-            self.cmp_abs(x) == Some(Ordering::Less)
+    impl<U> super::SetTolerances<U> for TolRug<Rational>
+    where Rational: rug::Assign<U> {
+        fn set_rtol(&mut self, rtol: U) {
+            <Rational as rug::Assign<U>>::assign(&mut self.rtol, rtol)
+        }
+        fn set_atol(&mut self, atol: U) {
+            <Rational as rug::Assign<U>>::assign(&mut self.atol, atol)
         }
     }
 }
