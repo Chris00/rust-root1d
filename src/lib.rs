@@ -1250,7 +1250,7 @@ where T: OrdFieldMut,
         t3.assign(fc);  *t3 *= t2; // t3 = d21
         *t2 *= fb; // t2 = q21
         *t1 -= t2; // t1 = d31 - q21  (t2 is free)
-        t2.assign(fc);  *t2 -= fa;  *t1 /= t2; // t1 = d31_q21
+        t2.assign(fc);  *t2 -= fa;  *t1 /= t2; // t1 = (d31 - q21) / (fc - fa)
         t2.assign(fc);  *t2 *= t1; // t2 = d32
         *t1 *= fa; // t1 = q32
         *r += t1; // r = q31 + q32  (t1 is free)
@@ -1317,6 +1317,7 @@ mod rug {
                 }
             }
             impl Terminate<$t> for TolRug<$t> {
+                #[inline]
                 fn stop(&mut self, a: &$t, b: &$t) -> bool {
                     let tmp1 = self.tmp1.get_mut();
                     let tmp2 = self.tmp2.get_mut();
@@ -1357,7 +1358,7 @@ mod rug {
     macro_rules! float_is_finite { ($s: expr) => { Float::is_finite($s) } }
     impl_rug!(Float, float_new,
               Float::with_val(53, 1e-16),
-              Float::with_val(53, 1e-16),
+              Float::with_val(53, 1e-12),
               float_is_finite,
               fn assign_mid(&mut self, a: &Self, b: &Self) {
                   self.assign(a);
@@ -1452,7 +1453,7 @@ mod tests_rug {
                 y.assign(x*x);
                 *y -= &b;
             };
-            assert!((root1d::bisect_mut(f, &a, &b).root()?
+            assert!((root1d::bisect_mut(f, &a, &b).atol(1e-15).root()?
                      - b.sqrt()).abs() < 1e-15);
         }
         Ok(())
@@ -1467,7 +1468,7 @@ mod tests_rug {
                 y.assign(x * x);
                 *y -= &b;
             };
-            assert!((root1d::toms748_mut(f, &a, &b).root()?
+            assert!((root1d::toms748_mut(f, &a, &b).atol(1e-15).root()?
                      - b.sqrt()).abs() < 1e-15);
         }
         Ok(())
