@@ -1474,7 +1474,7 @@ mod tests {
 #[cfg(all(test, feature = "rug"))]
 mod tests_rug {
     use crate as root1d;
-    use rug::{Assign, Float};
+    use rug::{Assign, Float, Rational};
 
     type R<T> = Result<(), root1d::Error<T>>;
 
@@ -1494,6 +1494,21 @@ mod tests_rug {
     }
 
     #[test]
+    fn bisection_rational() -> R<Rational> {
+        for i in 2 .. 20 {
+            let a = Rational::from(0);
+            let b = Rational::from(i);
+            let f = |y: &mut Rational, x: &Rational| {
+                y.assign(x*x);
+                *y -= &b;
+            };
+            assert!((root1d::bisect_mut(f, &a, &b).root()?
+                     .to_f64() - (i as f64).sqrt()).abs() < 3e-15);
+        }
+        Ok(())
+    }
+
+    #[test]
     fn toms748() -> R<Float> {
         for i in 2 .. 20 {
             let a = Float::with_val(53, 0f64);
@@ -1508,4 +1523,18 @@ mod tests_rug {
         Ok(())
     }
 
+    #[test]
+    fn toms748_rational() -> R<Rational> {
+        for i in 2 .. 20 {
+            let a = Rational::from(0);
+            let b = Rational::from(i);
+            let f = |y: &mut Rational, x: &Rational| {
+                y.assign(x*x);
+                *y -= &b;
+            };
+            assert!((root1d::toms748_mut(f, &a, &b).root()?
+                     .to_f64() - (i as f64).sqrt()).abs() < 1e-15);
+        }
+        Ok(())
+    }
 }
