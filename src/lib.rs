@@ -762,34 +762,6 @@ macro_rules! bracket_pos_neg {
     }
 }
 
-macro_rules! repeat1_stmt { ($($stmt:stmt)*) => { $($stmt)* } }
-macro_rules! repeat2_stmt { ($($stmt:stmt)*) => { $($stmt)* $($stmt)* } }
-
-macro_rules! newton_quadratic {
-    ($name: ident, $repeat: ident) => {
-        /// Evaluate with $k Newton iterations the root of the quadratic
-        /// interpolation polynomial on (x, f(x)) with x ∈ {a, b, d}.
-        #[inline]
-        #[must_use]
-        fn $name(a: T, b: T, d: T, fa: T, fb: T, fd: T) -> T {
-            let fab = (fa - fb) / (a - b);
-            let fbd = (fb - fd) / (b - d);
-            let fabd = (fab - fbd) / (a - d);
-            let den = fab - fabd * (a + b);
-            let (r, p) = if (fabd * fa).gt0() { (a, fa) } else { (b, fb) };
-            $repeat!(
-                let r = r - p / (den + fabd * r.twice())
-                let p = fa + fab * (r - a) + fabd * (r - a) * (r - b));
-            let r = r - p / (den + fabd * r.twice());
-            if r.is_inside_interval(&a, &b) {
-                r
-            } else { // Maybe fabd = 0, or d ∈ {a,b},...
-                a - fa / fab
-            }
-        }
-    }
-}
-
 impl<T, F, Term> Toms748<T, F, Term>
 where T: OrdField,
       F: FnMut(T) -> T,
@@ -840,7 +812,7 @@ where T: OrdField,
                     // 4.2.3: (a, b, d, e) = (aₙ, bₙ, dₙ, eₙ)
                     let mut c = Self::ipzero(a, b, d, e, fa, fb, fd, fe);
                     if !c.is_inside_interval(&a, &b) {
-                        c = Self::newton_quadratic2(a, b, d, fa, fb, fd);
+                        c = Self::newton_quadratic::<1>(a, b, d, fa, fb, fd);
                     };
                     body!(step, c, $bracket);
                 }
@@ -859,7 +831,7 @@ where T: OrdField,
                 let fc1 = (self.f)(c1);
                 $bracket!(a b c1 d, fa fb fc1 fd, self, x);
                 // 4.2.3
-                let c2 = Self::newton_quadratic2(a, b, d, fa, fb, fd);
+                let c2 = Self::newton_quadratic::<1>(a, b, d, fa, fb, fd);
                 body!(step, c2, $bracket)
             };
             // Assume (a, b, d) = (aₙ, bₙ, dₙ) and (fa, fb, fd) =
@@ -875,7 +847,7 @@ where T: OrdField,
                 // 4.2.5
                 let mut c = Self::ipzero(a, b, d, e, fa, fb, fd, fe);
                 if !c.is_inside_interval(&a, &b) {
-                    c = Self::newton_quadratic3(a, b, d, fa, fb, fd);
+                    c = Self::newton_quadratic::<2>(a, b, d, fa, fb, fd);
                 };
                 // 4.2.6: (a, b, d) = (a̅ₙ, b̅ₙ, d̅ₙ)
                 let fc = (self.f)(c);
@@ -911,8 +883,28 @@ where T: OrdField,
         Ok(*x)
     }
 
-    newton_quadratic!(newton_quadratic2, repeat1_stmt);
-    newton_quadratic!(newton_quadratic3, repeat2_stmt);
+    /// Evaluate with `K`+1 Newton iterations the root of the quadratic
+    /// interpolation polynomial on (x, f(x)) with x ∈ {a, b, d}.
+    #[inline]
+    #[must_use]
+    fn newton_quadratic<const K: u8>(a: T, b: T, d: T,
+                                     fa: T, fb: T, fd: T) -> T {
+        let fab = (fa - fb) / (a - b);
+        let fbd = (fb - fd) / (b - d);
+        let fabd = (fab - fbd) / (a - d);
+        let den = fab - fabd * (a + b);
+        let (mut r, mut p) = if (fabd * fa).gt0() { (a, fa) } else { (b, fb) };
+        for _ in 0..K {
+            r = r - p / (den + fabd * r.twice());
+            p = fa + fab * (r - a) + fabd * (r - a) * (r - b);
+        }
+        r = r - p / (den + fabd * r.twice());
+        if r.is_inside_interval(&a, &b) {
+            r
+        } else { // Maybe fabd = 0, or d ∈ {a,b},...
+            a - fa / fab
+        }
+    }
 
     /// Compute IP(0), the value at 0 of the inverse cubic interporation.
     #[inline]
@@ -1046,59 +1038,6 @@ macro_rules! bracket_pos_neg_mut {
     }
 }
 
-macro_rules! repeat1_expr { ($($e:expr)*) => { $($e;)* } }
-macro_rules! repeat2_expr { ($($e:expr)*) => { $($e;)* $($e;)* } }
-
-macro_rules! newton_quadratic_mut {
-    ($name: ident, $repeat: ident) => {
-        #[inline]
-        fn $name<'b>(r: &'b mut T, [fab, fabd, t1, den, p]: [&'b mut T; 5],
-                     a: &'b T, b: &'b T, d: &'b T,
-                     fa: &'b T, fb: &'b T, fd: &'b T) {
-            fab.assign(fa);  *fab -= fb; // fa - fb
-            t1.assign(a);  *t1 -= b; // a - b
-            *fab /= t1; // fab = (fa - fb) / (a - b)
-            fabd.assign(fb);  *fabd -= fd;
-            t1.assign(b);  *t1 -= d;
-            *fabd /= t1; // f[b,d] = (fb - fd) / (b - d)
-            *fabd -= fab;
-            t1.assign(d);  *t1 -= a;
-            *fabd /= t1; // fabd = (fab - fbd) / (a - d)
-            den.assign(fab);
-            t1.assign(a);  *t1 += b;  *t1 *= fabd;
-            *den -= t1; // den = fab - fabd * (a + b)
-            if fabd.has_same_sign(&fa) {
-                r.assign(a); p.assign(fa)
-            } else {
-                r.assign(b); p.assign(fb)
-            }
-            macro_rules! update {
-                (r) => { // also change `p`
-                    t1.assign(r);  t1.twice();  *t1 *= fabd;  *t1 += den;
-                    *p /= t1;
-                    *r -= p; // r := r - p / (den + fabd * 2r)
-                };
-                (p) => { // Does not change `r`
-                    p.assign(fabd);
-                    t1.assign(r);  *t1 -= b;  *p *= t1;
-                    *p += fab; // p = fab + fabd * (r - b)
-                    t1.assign(r);  *t1 -= a;  *p *= t1;
-                    *p += fa; // fa + fab * (r - a) + fabd * (r - a) * (r - b)
-                };
-            }
-            $repeat!(update!(r)
-                     update!(p)
-            );
-            update!(r);
-            if !r.is_inside_interval(&a, &b) {
-                r.assign(a);
-                t1.assign(fa);  *t1 /= fab;
-                *r -= t1; // a - fa / fab
-            }
-        }
-    }
-}
-
 impl<'a, T, F, Term> Toms748Mut<'a, T, F, Term>
 where T: OrdFieldMut,
       F: FnMut(&mut T, &T),
@@ -1161,8 +1100,8 @@ where T: OrdFieldMut,
                     Self::ipzero(c, [t1, t2, t3, t4],
                                  a, b, d, e, fa, fb, fd, fe);
                     if !c.is_inside_interval(&a, &b) {
-                        Self::newton_quadratic2(c, [t1, t2, t3, t4, t5],
-                                                a, b, d, fa, fb, fd);
+                        Self::newton_quadratic::<1>(c, [t1, t2, t3, t4, t5],
+                                                    a, b, d, fa, fb, fd);
                     };
                     body!(step, $bracket);
                 }
@@ -1184,8 +1123,8 @@ where T: OrdFieldMut,
                 (self.f)(fc, c);
                 $bracket!(a b c d, fa fb fc fd, self, root);
                 // 4.2.3
-                Self::newton_quadratic2(c, [t1, t2, t3, t4, t5],
-                                        a, b, d, fa, fb, fd);
+                Self::newton_quadratic::<1>(c, [t1, t2, t3, t4, t5],
+                                            a, b, d, fa, fb, fd);
                 body!(step, $bracket)
             };
             // Assume (a, b, c, d) = (aₙ, bₙ, cₙ, dₙ) and (fa, fb, fd) =
@@ -1201,8 +1140,8 @@ where T: OrdFieldMut,
                 // 4.2.5
                 Self::ipzero(c, [t1, t2, t3, t4], a, b, d, e, fa, fb, fd, fe);
                 if !c.is_inside_interval(&a, &b) {
-                    Self::newton_quadratic3(c, [t1, t2, t3, t4, t5],
-                                            a, b, d, fa, fb, fd);
+                    Self::newton_quadratic::<2>(c, [t1, t2, t3, t4, t5],
+                                                a, b, d, fa, fb, fd);
                 };
                 // 4.2.6: (a, b, d) = (a̅ₙ, b̅ₙ, d̅ₙ)
                 (self.f)(fc, c);
@@ -1242,10 +1181,55 @@ where T: OrdFieldMut,
             { body!(bracket_neg_pos_mut); }, // f(a) < 0 < f(b)
             { body!(bracket_pos_neg_mut); }); // f(a) > 0 > f(b)
         Ok(())
-   }
+    }
 
-    newton_quadratic_mut!(newton_quadratic2, repeat1_expr);
-    newton_quadratic_mut!(newton_quadratic3, repeat2_expr);
+    /// Evaluate with `K`+1 Newton iterations the root of the quadratic
+    /// interpolation polynomial on (x, f(x)) with x ∈ {a, b, d}.
+    #[inline]
+    fn newton_quadratic<'b, const K: u8>(
+        r: &'b mut T, [fab, fabd, t1, den, p]: [&'b mut T; 5],
+        a: &'b T, b: &'b T, d: &'b T,
+        fa: &'b T, fb: &'b T, fd: &'b T) {
+        fab.assign(fa);  *fab -= fb; // fa - fb
+        t1.assign(a);  *t1 -= b; // a - b
+        *fab /= t1; // fab = (fa - fb) / (a - b)
+        fabd.assign(fb);  *fabd -= fd;
+        t1.assign(b);  *t1 -= d;
+        *fabd /= t1; // f[b,d] = (fb - fd) / (b - d)
+        *fabd -= fab;
+        t1.assign(d);  *t1 -= a;
+        *fabd /= t1; // fabd = (fab - fbd) / (a - d)
+        den.assign(fab);
+        t1.assign(a);  *t1 += b;  *t1 *= fabd;
+        *den -= t1; // den = fab - fabd * (a + b)
+        if fabd.has_same_sign(&fa) {
+            r.assign(a); p.assign(fa)
+        } else {
+            r.assign(b); p.assign(fb)
+        }
+        macro_rules! update {
+            (r) => { // also change `p`
+                t1.assign(r);  t1.twice();  *t1 *= fabd;  *t1 += den;
+                *p /= t1;
+                *r -= p; // r := r - p / (den + fabd * 2r)
+            };
+        }
+        for _ in 0..K {
+            update!(r);
+            // Update `p` (do not change `r`)
+            p.assign(fabd);
+            t1.assign(r);  *t1 -= b;  *p *= t1;
+            *p += fab; // p = fab + fabd * (r - b)
+            t1.assign(r);  *t1 -= a;  *p *= t1;
+            *p += fa; // fa + fab * (r - a) + fabd * (r - a) * (r - b)
+        }
+        update!(r);
+        if !r.is_inside_interval(&a, &b) {
+            r.assign(a);
+            t1.assign(fa);  *t1 /= fab;
+            *r -= t1; // a - fa / fab
+        }
+    }
 
     /// Compute IP(0), the value at 0 of the inverse cubic interporation.
     #[inline]
