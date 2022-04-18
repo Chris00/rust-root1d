@@ -168,7 +168,7 @@ pub struct Tol<U> {
     /// Absolute tolerance.
     pub atol: U }
 
-macro_rules! impl_traits_tol {
+macro_rules! impl_traits_tol_fXX {
     ($t: ty, $rtol: expr, $atol: expr) => {
         impl Default for Tol<$t> {
             fn default() -> Self { Tol { rtol: $rtol, atol: $atol } }
@@ -197,8 +197,8 @@ macro_rules! impl_traits_tol {
     }
 }
 
-impl_traits_tol!(f64, 4. * f64::EPSILON, 2e-12);
-impl_traits_tol!(f32, 4. * f32::EPSILON, 2e-6);
+impl_traits_tol_fXX!(f64, 4. * f64::EPSILON, 2e-12);
+impl_traits_tol_fXX!(f32, 4. * f32::EPSILON, 2e-6);
 
 
 ////////////////////////////////////////////////////////////////////////
@@ -232,7 +232,7 @@ pub trait Bisectable: Clone + Debug {
     fn assign_mid(&mut self, a: &Self, b: &Self);
 }
 
-macro_rules! bisectable_fXX {
+macro_rules! impl_bisectable_fXX {
     ($t: ty) => {
         impl Bisectable for $t {
             type DefaultTerminate = Tol<$t>;
@@ -257,8 +257,8 @@ macro_rules! bisectable_fXX {
     }
 }
 
-bisectable_fXX!(f64);
-bisectable_fXX!(f32);
+impl_bisectable_fXX!(f64);
+impl_bisectable_fXX!(f32);
 
 
 ////////////////////////////////////////////////////////////////////////
