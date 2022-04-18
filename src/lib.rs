@@ -328,39 +328,51 @@ where T: Bisectable + Copy, Term: Terminate<T> {
     impl_options!(Bisect, bisect_tr,  f, a, b);
 }
 
-/// Check that `$fa` and `$fb` have opposite signs or panic.  If
-/// `$fa < 0 < $fb`, execute `$do_neg_pos`; if `$fa > 0 > $fb`,
-/// execute `$do_pos_neg`.
-macro_rules! act_on_sign_change {
-    ($name: expr, $a: ident, $b:ident, $fa: ident, $fb: ident,
-     $do_neg_pos: block, $do_pos_neg: block) => {
-        if $fa.lt0() {
-            if $fb.gt0() {
-                $do_neg_pos
-            } else if $fb.lt0() {
-                panic!("{}: no change of sign, f({:?}) < 0 and f({:?}) < 0.",
-                       $name, $a, $b)
-            } else if $fb.is_finite() { // f(b) = 0
-                return Ok($b)
-            } else {
-                return Err(Error::NotFinite{ x: $b,  fx: $fb })
-            }
-        } else if $fa.gt0() {
-            if $fb.lt0() {
-                $do_pos_neg
-            } else if $fb.gt0() {
-                panic!("{}: no change of sign, f({:?}) > 0 and f({:?}) > 0.",
-                       $name, $a, $b)
-            } else if $fb.is_finite() { // f(b) = 0
-                return Ok($b)
-            } else {
-                return Err(Error::NotFinite{ x: $b,  fx: $fb })
-            }
-        } else if $fa.is_finite() { // f(a) = 0
-            return Ok($a)
+/// Indicate whether the values `fa` and `fb` of the function at
+/// endpoints of the interval \[`a`, `b`\] have opposite signs or if
+/// one of them vanishes.  Panic otherwise.
+enum SignChange {
+    /// fa < 0 < fb
+    NegPos,
+    /// fa > 0 > fb
+    PosNeg,
+    /// fa = 0
+    Root1,
+    /// fb = 0
+    Root2,
+}
+
+#[inline]
+fn check_sign<T>(name: &str, a: T, b: T, fa: T, fb: T)
+                 -> Result<SignChange, Error<T>>
+where T: Bisectable {
+    use SignChange::*;
+    if fa.lt0() {
+        if fb.gt0() {
+            Ok(NegPos)
+        } else if fb.lt0() {
+            panic!("{}: no change of sign, f({:?}) < 0 and f({:?}) < 0.",
+                   name, a, b)
+        } else if fb.is_finite() { // f(b) = 0
+            Ok(Root2)
         } else {
-            return Err(Error::NotFinite{ x: $a,  fx: $fa })
+            Err(Error::NotFinite{ x: b,  fx: fb })
         }
+    } else if fa.gt0() {
+        if fb.lt0() {
+            Ok(PosNeg)
+        } else if fb.gt0() {
+            panic!("{}: no change of sign, f({:?}) > 0 and f({:?}) > 0.",
+                   name, a, b)
+        } else if fb.is_finite() { // f(b) = 0
+            Ok(Root2)
+        } else {
+            Err(Error::NotFinite{ x: b,  fx: fb })
+        }
+    } else if fa.is_finite() { // f(a) = 0
+        Ok(Root1)
+    } else {
+        Err(Error::NotFinite{ x: a,  fx: fa })
     }
 }
 
@@ -387,9 +399,13 @@ where T: Bisectable + Copy,
         let mut b = self.b;
         let mut fa = (self.f)(a);
         let mut fb = (self.f)(b);
-        act_on_sign_change!("root1d::bisect", a, b, fa, fb, {},
-                            { swap(&mut a, &mut b);
-                              swap(&mut fa, &mut fb); });
+        match check_sign("root1d::bisect", a, b, fa, fb)? {
+            SignChange::NegPos => (),
+            SignChange::PosNeg => { swap(&mut a, &mut b);
+                                    swap(&mut fa, &mut fb) },
+            SignChange::Root1 => return Ok(a),
+            SignChange::Root2 => return Ok(b),
+        }
         // f(a) < 0 < f(b)
         x.assign_mid(&a, &b);
         for _ in 0 .. self.maxiter {
@@ -876,10 +892,12 @@ where T: OrdField,
                 }
             }
         }
-        act_on_sign_change!(
-            "root1d::toms748", a, b, fa, fb,
-            { body!(bracket_neg_pos); }, // f(a) < 0 < f(b)
-            { body!(bracket_pos_neg); }); // f(a) > 0 > f(b)
+        match check_sign("root1d::toms748", a, b, fa, fb)? {
+            SignChange::NegPos => { body!(bracket_neg_pos); }
+            SignChange::PosNeg => { body!(bracket_pos_neg); },
+            SignChange::Root1 => return Ok(a),
+            SignChange::Root2 => return Ok(b),
+        }
         Ok(*x)
     }
 
