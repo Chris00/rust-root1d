@@ -514,47 +514,44 @@ macro_rules! return_notfinite {
     }
 }
 
-/// Check that `$fa` and `$fb` have opposite signs or panic.  If
-/// `$fa < 0 < $fb`, execute `$do_neg_pos`; if `$fa > 0 > $fb`,
-/// execute `$do_pos_neg`.
-/// `$fa` and `$fb` are the variables in which to store the values of
-/// `f` at `$a` and `$b`.  They can be the same.
-macro_rules! act_on_sign_change_mut {
-    ($name: expr, $a: ident, $b:ident, $fa: ident, $fb: ident, $f: expr,
-     $root: ident, $do_neg_pos: block, $do_pos_neg: block) => {
-        $f($fa, $a);
-        if $fa.lt0() {
-            $f($fb, $b);
-            if $fb.gt0() {
-                $do_neg_pos
-            } else if $fb.lt0() {
-                panic!("{}: no sign change, f({:?}) < 0 and f({:?}) < 0.",
-                       $name, $a, $b)
-            } else if $fb.is_finite() { // f(b) = 0
-                $root.assign($b);
-                return Ok(())
-            } else {
-                return_notfinite!($b, $fb)
-            }
-        } else if $fa.gt0() {
-            $f($fb, $b);
-            if $fb.lt0() {
-                $do_pos_neg
-            } else if $fb.gt0() {
-                panic!("{}: no sign change, f({:?}) > 0 and f({:?}) > 0.",
-                       $name, $a, $b)
-            } else if $fb.is_finite() { // f(b) = 0
-                $root.assign($b);
-                return Ok(())
-            } else {
-                return_notfinite!($b, $fb)
-            }
-        } else if $fa.is_finite() { // f(a) = 0
-            $root.assign($a);
-            return Ok(());
+/// Same as [`check_sign`] for non-Copy types.  In addition evaluate
+/// `f` at `a` and `b` and store the result in `fa` and `fb` respectively.
+#[inline]
+fn check_sign_mut<T,F>(name: &str, a: &T, b: &T,
+                       f: &mut F, fa: &mut T, fb: &mut T)
+                       -> Result<SignChange, Error<T>>
+where T: Bisectable,
+      F: FnMut(&mut T, &T) {
+    use SignChange::*;
+    f(fa, a);
+    if fa.lt0() {
+        f(fb, b);
+        if fb.gt0() {
+            Ok(NegPos)
+        } else if fb.lt0() {
+            panic!("{}: no change of sign, f({:?}) < 0 and f({:?}) < 0.",
+                   name, a, b)
+        } else if fb.is_finite() { // f(b) = 0
+            Ok(Root2)
         } else {
-            return_notfinite!($a, $fa);
+            return_notfinite!(b, fb)
         }
+    } else if fa.gt0() {
+        f(fb, b);
+        if fb.lt0() {
+            Ok(PosNeg)
+        } else if fb.gt0() {
+            panic!("{}: no change of sign, f({:?}) > 0 and f({:?}) > 0.",
+                   name, a, b)
+        } else if fb.is_finite() { // f(b) = 0
+            Ok(Root2)
+        } else {
+            return_notfinite!(b, fb)
+        }
+    } else if fa.is_finite() { // f(a) = 0
+        Ok(Root1)
+    } else {
+        return_notfinite!(a, fa)
     }
 }
 
@@ -579,12 +576,27 @@ where T: Bisectable,
             }
             Some(v) => (&mut v.0, &mut v.1, &mut v.2)
         };
-        a.assign(self.a);
-        b.assign(self.b);
-        act_on_sign_change_mut!(
-            "root1d::bisect_mut", a, b, fx, fx, self.f, root,
-            {},
-            { swap(a, b); });
+        // We use `a` and `b` to hold `f(a)` and `f(b)` (they cannot
+        // be both `fx` for the mutable borrow restrictions).
+        match check_sign_mut("root1d::bisect_mut", self.a, self.b,
+                             &mut self.f, a, b)? {
+            SignChange::NegPos => {
+                a.assign(self.a);
+                b.assign(self.b);
+            }
+            SignChange::PosNeg => {
+                a.assign(self.b);
+                b.assign(self.a);
+            }
+            SignChange::Root1 => {
+                root.assign(self.a);
+                return Ok(())
+            }
+            SignChange::Root2 => {
+                root.assign(self.b);
+                return Ok(())
+            }
+        }
         // f(a) < 0 < f(b)
         for _ in 0 .. self.maxiter {
             root.assign_mid(a, b);
@@ -1194,10 +1206,13 @@ where T: OrdFieldMut,
                 }
             }
         }
-        act_on_sign_change_mut!(// `fa` and `fb` set to f(a) and f(b)
-            "root1d::toms748_mut", a, b, fa, fb, self.f, root,
-            { body!(bracket_neg_pos_mut); }, // f(a) < 0 < f(b)
-            { body!(bracket_pos_neg_mut); }); // f(a) > 0 > f(b)
+        match check_sign_mut("root1d::toms748_mut", a, b,
+                             &mut self.f, fa, fb)? {
+            SignChange::NegPos => { body!(bracket_neg_pos_mut); }
+            SignChange::PosNeg => { body!(bracket_pos_neg_mut); },
+            SignChange::Root1 => { root.assign(a); return Ok(()) },
+            SignChange::Root2 => { root.assign(b); return Ok(())},
+        }
         Ok(())
     }
 
