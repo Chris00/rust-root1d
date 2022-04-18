@@ -1,7 +1,13 @@
 //! One dimensional root finding algorithms.
 //!
 //! This crate offers several *generic* root finding algorithms for
-//! functions from ℝ to ℝ.
+//! functions from ℝ to ℝ.  It focuses on *bracketing* algorithms,
+//! that is algorithms which start with an interval \[a,b\] such that
+//! the function has opposite signs at a and b (thus containing a root
+//! of the function if it is continuous) and compute a smaller
+//! interval with the same property.
+//!
+//! # Example
 //!
 //! ```
 //! use root1d::toms748;
@@ -342,6 +348,10 @@ enum SignChange {
     Root2,
 }
 
+/// Says whether `fa` and `fb` have opposite signs (return `NegPos` of
+/// `PosNeg` in this case) or one of them is zero (return `Root1` or
+/// `Root2` in this case).  Panics if it is not the case.  Return an
+/// error if `fa` or `fb` is not finite.
 #[inline]
 fn check_sign<T>(name: &str, a: T, b: T, fa: T, fb: T)
                  -> Result<SignChange, Error<T>>
@@ -459,7 +469,7 @@ where T: Bisectable + Copy,
 /// ```
 #[must_use]
 pub fn bisect_mut<'a,T,F>(f: F, a: &'a T, b: &'a T)
-                        -> BisectMut<'a, T, F, T::DefaultTerminate>
+                          -> BisectMut<'a, T, F, T::DefaultTerminate>
 where T: Bisectable,
       F: FnMut(&mut T, &T) + 'a {
     if !a.is_finite() {
