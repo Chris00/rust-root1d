@@ -515,15 +515,6 @@ where T: Bisectable, Term: Terminate<T> {
     }
 }
 
-macro_rules! return_notfinite {
-    ($x: expr, $fx: expr) => {
-        // The error must own its data as it is destined to be
-        // propagated up, likely outside the scope where the
-        // references are valid.
-        return Err(Error::NotFinite{ x: $x.clone(), fx: $fx.clone() })
-    }
-}
-
 /// Same as [`check_sign`] for non-Copy types.  In addition evaluate
 /// `f` at `a` and `b` and store the result in `fa` and `fb` respectively.
 #[inline]
@@ -544,7 +535,7 @@ where T: Bisectable,
         } else if fb.is_finite() { // f(b) = 0
             Ok(Root2)
         } else {
-            return_notfinite!(b, fb)
+            return Err(Error::NotFinite{ x: b.clone(), fx: fb.clone() })
         }
     } else if fa.gt0() {
         f(fb, b);
@@ -556,12 +547,12 @@ where T: Bisectable,
         } else if fb.is_finite() { // f(b) = 0
             Ok(Root2)
         } else {
-            return_notfinite!(b, fb)
+            return Err(Error::NotFinite{ x: b.clone(), fx: fb.clone() })
         }
     } else if fa.is_finite() { // f(a) = 0
         Ok(Root1)
     } else {
-        return_notfinite!(a, fa)
+        return Err(Error::NotFinite{ x: a.clone(), fx: fa.clone() })
     }
 }
 
@@ -618,7 +609,9 @@ where T: Bisectable,
             if fx.lt0() { swap(a, root) }
             else if fx.gt0() { swap(b, root) }
             else if fx.is_finite() { return Ok(()) }
-            else { return_notfinite!(root, fx) }
+            else {
+                return Err(Error::NotFinite{ x: root.clone(), fx: fx.clone() })
+            }
         }
 
         if self.maxiter_err {
@@ -769,7 +762,7 @@ macro_rules! bracket_sign {
             $assign!(*$x, $c);
             return Ok($ok_val!($c))
         } else {
-            return_notfinite!($c, $fc)
+            return Err(Error::NotFinite{ x: $c.clone(), fx: $fc.clone() })
         }
     }
 }
