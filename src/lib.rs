@@ -86,70 +86,6 @@ pub trait SetTolerances<U> {
     fn set_atol(&mut self, atol: U);
 }
 
-macro_rules! impl_options {
-    // Implement the options to set the termination criterion (of type
-    // `Term`) held by the field `t` of the struct `$s` also having
-    // the additional `field`s in addition to `maxiter` and `maxiter_err`.
-    ($s: ident, $s_tr: ident, $( $field: ident ),* ) => {
-        /// Set the maximum number of iterations.
-        ///
-        /// If `n`, it is interpreted as “unlimited” (actually
-        /// [`usize::MAX`]).
-        pub fn maxiter(mut self, n: usize) -> Self {
-            if n == 0 {
-                self.maxiter = usize::MAX;
-            } else {
-                self.maxiter = n;
-            }
-            self
-        }
-
-        /// If `err` is `true` report the reach of the maximum number
-        /// of iterations as an error.  Otherwise, just stop working
-        /// and provide the estimate of the root after the maximum
-        /// number of iterations.
-        pub fn maxiter_err(mut self, err: bool) -> Self {
-            self.maxiter_err = err;
-            self
-        }
-
-        /// Change the termination criterion to `t`.
-        ///
-        /// You can use a closure `FnMut(&T, &T) -> bool` as the
-        /// termination criterion `t`.
-        pub fn terminate<Tr>(self, t: Tr) -> $s_tr!(Tr)
-        where Tr: Terminate<T> {
-            // FIXME: type changing struct updating is experimental
-            // $s { t, .. self }
-            $s { t,
-                 maxiter: self.maxiter,
-                 maxiter_err: self.maxiter_err,
-                 $( $field: self.$field, )* }
-        }
-
-        /// Set the the relative tolerance termination criterion (that
-        /// implements [`SetTolerances`]), leaving unchanged the value
-        /// of the absolute tolerance.
-        ///
-        /// Panics if `rtol` is ≤ 0.
-        pub fn rtol<U>(mut self, rtol: U) -> Self
-        where Term: SetTolerances<U> {
-            self.t.set_rtol(rtol);
-            self
-        }
-        /// Set the the absolute tolerance termination criterion (that
-        /// implements [`SetTolerances`]), leaving unchanged the value
-        /// of the relative tolerance.
-        ///
-        /// Panics if `atol` is < 0.
-        pub fn atol<U>(mut self, atol: U) -> Self
-        where Term: SetTolerances<U> {
-            self.t.set_atol(atol);
-            self
-        }
-    }
-}
-
 /// Enable using a closure as a termination criterion.
 impl<T,F> Terminate<T> for F
 where F: FnMut(&T, &T) -> bool,
@@ -269,70 +205,147 @@ impl_bisectable_fXX!(f32);
 
 ////////////////////////////////////////////////////////////////////////
 //
+// Common structure definition for root-finding methods
+
+/// Define the structure to hold the root-finding options and the
+/// standard methods to set these. `$l` is an optional lifetime
+/// (needed for non-Copy types).
+macro_rules! new_root_finding_method {
+    // Function to initialize the struct.
+    ($(#[$docfn: meta])* $fun: ident,
+     // The structure to hold the options (and other fields).
+     $(#[$doc: meta])* $struct: ident <$($l: lifetime,)? ...>,
+     $($field: ident, $t: ty)*) => {
+        $(#[$docfn])*
+        #[must_use]
+        pub fn $fun<$($l,)? T,F>(f: F, a: $(&$l)? T, b: $(&$l)? T)
+                                 -> $struct<$($l,)? T, F, T::DefaultTerminate>
+        where T: Bisectable {
+            if !a.is_finite() {
+                panic!("root1d::{}: a = {:?} must be finite",
+                       stringify!($fun), a)
+            }
+            if !b.is_finite() {
+                panic!("root1d::{}: b = {:?} must be finite",
+                       stringify!($fun), b)
+            }
+            $struct { f,  a,  b,
+                      t: T::DefaultTerminate::default(),
+                      maxiter: 100,
+                      maxiter_err: false,
+                      $($field: None,)*  // All extra fields are options
+            }
+        }
+
+        $(#[$doc])*
+        pub struct $struct<$($l,)? T, F, Term>
+        where Term: Terminate<T> {
+            f: F,
+            a: $(&$l)? T,  // `a` and `b` are the bounds of the interval.
+            b: $(&$l)? T,
+            t: Term,  // Termination criterion
+            maxiter: usize,
+            maxiter_err: bool,
+            $($field: $t)*
+        }
+
+        impl<$($l,)? T, F, Term> $struct<$($l,)? T, F, Term>
+        where Term: Terminate<T> {
+            /// Set the maximum number of iterations.
+            ///
+            /// If `n`, it is interpreted as “unlimited” (actually
+            /// [`usize::MAX`]).
+            pub fn maxiter(mut self, n: usize) -> Self {
+                if n == 0 {
+                    self.maxiter = usize::MAX;
+                } else {
+                    self.maxiter = n;
+                }
+                self
+            }
+
+            /// If `err` is `true` report the reach of the maximum number
+            /// of iterations as an error.  Otherwise, just stop working
+            /// and provide the estimate of the root after the maximum
+            /// number of iterations.
+            pub fn maxiter_err(mut self, err: bool) -> Self {
+                self.maxiter_err = err;
+                self
+            }
+
+            /// Change the termination criterion to `t`.
+            ///
+            /// You can use a closure `FnMut(&T, &T) -> bool` as the
+            /// termination criterion `t`.
+            pub fn terminate<Tr>(self, t: Tr) -> $struct<$($l,)? T, F, Tr>
+            where Tr: Terminate<T> {
+                // FIXME: type changing struct updating is experimental
+                // $s { t, .. self }
+                $struct { t,
+                          f: self.f,  a: self.a,  b: self.b,
+                          maxiter: self.maxiter,
+                          maxiter_err: self.maxiter_err,
+                          $( $field: self.$field, )* }
+            }
+
+            /// Set the the relative tolerance termination criterion (that
+            /// implements [`SetTolerances`]), leaving unchanged the value
+            /// of the absolute tolerance.
+            ///
+            /// Panics if `rtol` is ≤ 0.
+            pub fn rtol<U>(mut self, rtol: U) -> Self
+            where Term: SetTolerances<U> {
+                self.t.set_rtol(rtol);
+                self
+            }
+            /// Set the the absolute tolerance termination criterion (that
+            /// implements [`SetTolerances`]), leaving unchanged the value
+            /// of the relative tolerance.
+            ///
+            /// Panics if `atol` is < 0.
+            pub fn atol<U>(mut self, atol: U) -> Self
+            where Term: SetTolerances<U> {
+                self.t.set_atol(atol);
+                self
+            }
+        }
+    }
+}
+
+////////////////////////////////////////////////////////////////////////
+//
 // Bisection for copy types
 
-/// Find a root of the function `f` on the interval \[`a`, `b`\] where
-/// `f(a)` and `f(b)` have opposite signs using the bisection
-/// algorithm.
-///
-/// The default maximum number of iterations is 100 and reaching that
-/// many iteration simply returns the root (you can report that as an
-/// error by calling [`maxiter_err`][Bisect::maxiter]`(true)`).
-/// Nothing is computed until the [`root`][Bisect::root] or
-/// [`root_mut`][Bisect::root_mut] method is used on the result.
-/// See [`Bisect`]'s methods for more options.
-///
-/// The bisection algorithm is quite slow be requires only a few
-/// things from the type `T`.  Specifically, it requires that
-/// [`Bisectable`] is implemented for the type `T` (which also
-/// provides the default termination criteria).
-///
-/// # Example
-///
-/// ```
-/// use root1d::bisect;
-/// # use std::error::Error;
-/// # fn main() -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
-/// assert!((bisect(|x| x*x - 2., 0., 2.).atol(0.).root()?
-///          - 2f64.sqrt()).abs() < 1e-15);
-/// # Ok(()) }
-/// ```
-#[must_use]
-pub fn bisect<T,F>(f: F, a: T, b: T) -> Bisect<T, F, T::DefaultTerminate>
-where T: Bisectable + Copy,
-      F: FnMut(T) -> T {
-    if !a.is_finite() {
-        panic!("root1d::root: a = {:?} must be finite", a)
-    }
-    if !b.is_finite() {
-        panic!("root1d::root: b = {:?} must be finite", b)
-    }
-    Bisect { f, a, b,
-             t: T::DefaultTerminate::default(),
-             maxiter: 100,
-             maxiter_err: false,
-    }
-}
-
-/// Bisection algorithm (for [`Copy`] types).
-pub struct Bisect<T, F, Term>
-where Term: Terminate<T> {
-    f: F,
-    a: T,     // `a` and `b` are the bounds of the interval.
-    b: T,
-    t: Term,  // Termination criterion
-    maxiter: usize,
-    maxiter_err: bool,
-}
-
-macro_rules! bisect_tr {
-    ($tr: ty) => { Bisect<T, F, $tr> }
-}
-
-impl<T, F, Term> Bisect<T, F, Term>
-where T: Bisectable + Copy, Term: Terminate<T> {
-    impl_options!(Bisect, bisect_tr,  f, a, b);
-}
+new_root_finding_method!(
+    /// Find a root of the function `f` on the interval \[`a`, `b`\] where
+    /// `f(a)` and `f(b)` have opposite signs using the bisection
+    /// algorithm.
+    ///
+    /// The default maximum number of iterations is 100 and reaching that
+    /// many iteration simply returns the root (you can report that as an
+    /// error by calling [`maxiter_err`][Bisect::maxiter]`(true)`).
+    /// Nothing is computed until the [`root`][Bisect::root] or
+    /// [`root_mut`][Bisect::root_mut] method is used on the result.
+    /// See [`Bisect`]'s methods for more options.
+    ///
+    /// The bisection algorithm is quite slow be requires only a few
+    /// things from the type `T`.  Specifically, it requires that
+    /// [`Bisectable`] is implemented for the type `T` (which also
+    /// provides the default termination criteria).
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use root1d::bisect;
+    /// # use std::error::Error;
+    /// # fn main() -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
+    /// assert!((bisect(|x| x*x - 2., 0., 2.).atol(0.).root()?
+    ///          - 2f64.sqrt()).abs() < 1e-15);
+    /// # Ok(()) }
+    /// ```
+    bisect,
+    /// Bisection algorithm (for [`Copy`] types).
+    Bisect<...>,);
 
 /// Indicate whether the values `fa` and `fb` of the function at
 /// endpoints of the interval \[`a`, `b`\] have opposite signs or if
@@ -444,68 +457,37 @@ where T: Bisectable + Copy,
 //
 // Bisection for non-copy types
 
-/// Same as [`bisect`] for non-[`Copy`] types.
-///
-/// The default maximum number of iterations is 100 and reaching that
-/// many iteration simply returns the root (you can report that as an
-/// error by calling [`maxiter_err`][BisectMut::maxiter]`(true)`).
-/// Nothing is computed until the [`root`][BisectMut::root] or
-/// [`root_mut`][BisectMut::root_mut] method is used on the result.
-/// See [`BisectMut`]'s methods for more options.
-///
-/// This method requires that [`Bisectable`] is implemented for the
-/// type `T` which provides the default termination criteria.
-///
-/// # Example
-///
-/// ```
-/// use root1d::bisect_mut;
-/// # use std::error::Error;
-/// # fn main() -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
-/// let f = |y: &mut f64, x: &f64| *y = *x * *x - 2.;
-/// assert!((bisect_mut(f, &0., &2.).atol(0.).root()?
-///          - 2f64.sqrt()).abs() < 1e-15);
-/// # Ok(()) }
-/// ```
-#[must_use]
-pub fn bisect_mut<'a,T,F>(f: F, a: &'a T, b: &'a T)
-                          -> BisectMut<'a, T, F, T::DefaultTerminate>
-where T: Bisectable,
-      F: FnMut(&mut T, &T) + 'a {
-    if !a.is_finite() {
-        panic!("root1d::bisect_mut: a = {:?} must be finite", a)
-    }
-    if !b.is_finite() {
-        panic!("root1d::bisect_mut: b = {:?} must be finite", b)
-    }
-    BisectMut { f,  a,  b,
-                t: T::DefaultTerminate::default(),
-                workspace: None,
-                maxiter: 100,
-                maxiter_err: false,
-    }
-}
-
-/// Bisection algorithm (for non-[`Copy`] types).
-pub struct BisectMut<'a, T, F, Term>
-where Term: Terminate<T> {
-    f: F,
-    a: &'a T,
-    b: &'a T,
-    t: Term,
-    workspace: Option<&'a mut (T,T,T)>, // temp vars
-    maxiter: usize,
-    maxiter_err: bool,
-}
-
-macro_rules! bisect_mut_tr {
-    ($tr: ty) => { BisectMut<'a, T, F, $tr> }
-}
+new_root_finding_method! (
+    /// Same as [`bisect`] for non-[`Copy`] types.
+    ///
+    /// The default maximum number of iterations is 100 and reaching that
+    /// many iteration simply returns the root (you can report that as an
+    /// error by calling [`maxiter_err`][BisectMut::maxiter]`(true)`).
+    /// Nothing is computed until the [`root`][BisectMut::root] or
+    /// [`root_mut`][BisectMut::root_mut] method is used on the result.
+    /// See [`BisectMut`]'s methods for more options.
+    ///
+    /// This method requires that [`Bisectable`] is implemented for the
+    /// type `T` which provides the default termination criteria.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use root1d::bisect_mut;
+    /// # use std::error::Error;
+    /// # fn main() -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
+    /// let f = |y: &mut f64, x: &f64| *y = *x * *x - 2.;
+    /// assert!((bisect_mut(f, &0., &2.).atol(0.).root()?
+    ///          - 2f64.sqrt()).abs() < 1e-15);
+    /// # Ok(()) }
+    /// ```
+    bisect_mut,
+    /// Bisection algorithm (for non-[`Copy`] types).
+    BisectMut<'a,...>,
+    workspace, Option<&'a mut (T,T,T)>);
 
 impl<'a, T, F, Term> BisectMut<'a, T, F, Term>
 where T: Bisectable, Term: Terminate<T> {
-    impl_options!(BisectMut, bisect_mut_tr,  f, a, b, workspace);
-
     /// Provide variables that will be used as workspace when running
     /// the bisection algorithm.
     #[must_use]
@@ -681,63 +663,34 @@ macro_rules! impl_ordfield_fXX {
 impl_ordfield_fXX!(f32);
 impl_ordfield_fXX!(f64);
 
-/// Find a root of the function `f` on the interval \[`a`, `b`\],
-/// where `f(a)` and `f(b)` have opposite signs using Algorithm 748 by
-/// Alefeld, Potro and Shi.
-///
-/// The default maximum number of iterations is 100 and can be changed
-/// using the [`maxiter`][Toms748::maxiter] method.  See the methods
-/// of [`Toms748`] for more options.
-///
-/// # Example
-///
-/// ```
-/// use root1d::toms748;
-/// # fn main() -> Result<(), root1d::Error<f64>> {
-/// let f = |x| x * x - 2.;
-/// assert!((toms748(f, 0., 2.).atol(0.).rtol(1e-10).root()?
-///          - 2f64.sqrt()).abs() < 1e-15);
-/// # Ok(()) }
-/// ```
-///
-/// # Reference
-///
-/// G. E. Alefeld, F. A. Potra, and Y. Shi, “Algorithm 748:
-/// enclosing zeros of continuous functions,” ACM Trans. Math. Softw.,
-/// vol. 21, no. 3, pp. 327–344, Sep. 1995, doi: 10.1145/210089.210111.
-#[must_use]
-pub fn toms748<T,F>(f: F, a: T, b: T) -> Toms748<T, F, T::DefaultTerminate>
-where T: OrdField,
-      F: FnMut(T) -> T {
-    if !a.is_finite() {
-        panic!("root1d::toms748: a = {:?} must be finite", a)
-    }
-    if !b.is_finite() {
-        panic!("root1d::toms748: b = {:?} must be finite", b)
-    }
-    Toms748 { f, a, b,
-              t: T::DefaultTerminate::default(),
-              maxiter: 100,
-              maxiter_err: false,
-    }
-}
-
-/// [`toms748`] algorithm (for [`Copy`] types).
-pub struct Toms748<T, F, Term> {
-    f: F,
-    a: T,     // `a` and `b` are the bounds of the interval.
-    b: T,
-    t: Term,  // Termination criterion
-    maxiter: usize,
-    maxiter_err: bool,
-}
-
-macro_rules! toms748_tr { ($tr: ty) => { Toms748<T, F, $tr> } }
-
-impl<T, F, Term> Toms748<T, F, Term>
-where T: OrdField, Term: Terminate<T> {
-    impl_options!(Toms748, toms748_tr,  f, a, b);
-}
+new_root_finding_method!(
+    /// Find a root of the function `f` on the interval \[`a`, `b`\],
+    /// where `f(a)` and `f(b)` have opposite signs using Algorithm 748 by
+    /// Alefeld, Potro and Shi.
+    ///
+    /// The default maximum number of iterations is 100 and can be changed
+    /// using the [`maxiter`][Toms748::maxiter] method.  See the methods
+    /// of [`Toms748`] for more options.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use root1d::toms748;
+    /// # fn main() -> Result<(), root1d::Error<f64>> {
+    /// let f = |x| x * x - 2.;
+    /// assert!((toms748(f, 0., 2.).atol(0.).rtol(1e-10).root()?
+    ///          - 2f64.sqrt()).abs() < 1e-15);
+    /// # Ok(()) }
+    /// ```
+    ///
+    /// # Reference
+    ///
+    /// G. E. Alefeld, F. A. Potra, and Y. Shi, “Algorithm 748:
+    /// enclosing zeros of continuous functions,” ACM Trans. Math. Softw.,
+    /// vol. 21, no. 3, pp. 327–344, Sep. 1995, doi: 10.1145/210089.210111.
+    toms748,
+    /// [`toms748`] algorithm (for [`Copy`] types).
+    Toms748<...>, );
 
 macro_rules! bracket_sign {
     // Assume $a < $c < $b and $fa.$lt0() and $fb.$gt0()
@@ -997,45 +950,16 @@ pub trait OrdFieldMut: Bisectable + PartialOrd
         }
     }
 
-/// Same as [`toms748`] for non-[`Copy`] types.
-#[must_use]
-pub fn toms748_mut<'a,T,F>(f: F, a: &'a T, b: &'a T)
-                           -> Toms748Mut<'a, T, F, T::DefaultTerminate>
-where T: OrdFieldMut,
-      F: FnMut(&mut T, &T) + 'a {
-    if !a.is_finite() {
-        panic!("root1d::toms748_mut: a = {:?} must be finite", a)
-    }
-    if !b.is_finite() {
-        panic!("root1d::toms748_mut: b = {:?} must be finite", b)
-    }
-    Toms748Mut { f,  a,  b,
-                 t: T::DefaultTerminate::default(),
-                 workspace: None,
-                 maxiter: 100,
-                 maxiter_err: false,
-    }
-}
-
-/// [`toms748_mut`] algorithm (for non-[`Copy`] types).
-pub struct Toms748Mut<'a, T, F, Term>
-where Term: Terminate<T> {
-    f: F,
-    a: &'a T,
-    b: &'a T,
-    t: Term,
-    workspace: Option<&'a mut (T,T,T,T,T,T,T,T,T,T,T,T,T,T,T,T)>, // temp vars
-    maxiter: usize,
-    maxiter_err: bool,
-}
-
-macro_rules! toms748mut_tr { ($tr: ty) => { Toms748Mut<'a, T, F, $tr> } }
+new_root_finding_method!(
+    /// Same as [`toms748`] for non-[`Copy`] types.
+    toms748_mut,
+    /// [`toms748_mut`] algorithm (for non-[`Copy`] types).
+    Toms748Mut<'a,...>,
+    workspace, Option<&'a mut (T,T,T,T,T,T,T,T,T,T,T,T,T,T,T,T)>);
 
 impl<'a, T, F, Term> Toms748Mut<'a, T, F, Term>
 where T: OrdFieldMut,
       Term: Terminate<T> {
-    impl_options!(Toms748Mut, toms748mut_tr,  f, a, b, workspace);
-
     /// Provide variables that will be used as workspace when running
     /// the [`toms748_mut`] function.
     #[must_use]
