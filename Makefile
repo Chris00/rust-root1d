@@ -25,6 +25,9 @@ bench_mut:
 	@$(TIME) target/release/examples/speed_rug_bisect
 	@$(TIME) target/release/examples/speed_rug_toms748
 
+criterion:
+	cargo criterion --plotting-backend plotters
+
 flamegraph:
 	cargo build --profile release --example speed
 	flamegraph -o $(TMP)/speed.svg -- target/release/examples/speed
@@ -34,4 +37,4 @@ clean:
 	cargo clean
 	-dune clean
 
-.PHONY: build doc examples bench bench_mut flamegraph clean
+.PHONY: build doc examples bench bench_mut criterion flamegraph clean

@@ -18,12 +18,25 @@ features = ["float", "rational"]
 optional = true
 
 [dev-dependencies]
+criterion = "0.3.5"
 roots = "0.0.7"
 
 [[example]]
 name = "basic"
 path = "examples/basic.rs"
 required-features = ["rug"]
+
+# [[bench]]
+# name = "basic"
+# harness = false
+
+[[bench]]
+name = "pbm748"
+harness = false
+
+[[bench]]
+name = "pbm748_neval"
+harness = false
 
 [[example]]
 name = "speed"
