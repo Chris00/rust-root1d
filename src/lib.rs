@@ -19,9 +19,11 @@
 //!
 //! # Use with your own types
 //!
-//! This library can readily be usef with types `f64` and `f32` and,
-//! if you activate the feature `rug` with `rug::Float` and
-//! `rug::Rational`.  To use it with with another type, say `t`,
+//! This library can readily be used with types `f64` and `f32` and,
+//! if you activate the feature `rug`, with `rug::Float` and
+//! `rug::Rational`.
+//!
+//! To use it with with another type, say `t`,
 //! implement the trait [`Bisectable`] for `t` which in turn requires
 //! that you decide which type will store the default termination
 //! routine (for example one based on tolerances, either
@@ -321,7 +323,13 @@ new_root_finding_method!(
     /// `f(a)` and `f(b)` have opposite signs using the bisection
     /// algorithm.
     ///
-    /// The default maximum number of iterations is 100 and reaching that
+    /// The default stopping criterion for [`f64`] (resp. [`f32`]) is
+    /// given by [`Tol`] with `rtol: 4. * f64::EPSILON`, and
+    /// `atol: 2e-12` (resp. `rtol:4. * f32::EPSILON` and
+    /// `atol: 2e-6`).  The [`Terminate`] stopping criterion is
+    /// |a - b| ≤ `rtol` · max{|a|, |b|} + `atol`.
+    ///
+    /// The default maximum number of iterations is `100` and reaching that
     /// many iteration simply returns the root (you can report that as an
     /// error by calling [`maxiter_err`][Bisect::maxiter]`(true)`).
     /// Nothing is computed until the [`root`][Bisect::root] or
@@ -403,8 +411,9 @@ impl<T, F, Term> Bisect<T, F, Term>
 where T: Bisectable + Copy,
       F: FnMut(T) -> T,
       Term: Terminate<T> {
-    /// Return `Ok(r)` where `r` is a root of the function or `Err`
-    /// indicating that the function returned a NaN value or, if
+    /// Return `Ok(r)` where `r` is an approximate root of the
+    /// function (provided that it is continuous) or `Err` indicating
+    /// that the function returned a NaN value or, if
     /// [`maxiter_err`][Bisect::maxiter_err] was turned on, that the
     /// maximum number of iterations was reached.
     pub fn root(&mut self) -> Result<T, Error<T>> {
@@ -419,6 +428,16 @@ where T: Bisectable + Copy,
         self.root_mut(&mut x)
     }
 
+    /// Use the bisection algorithm to approximate a root of the
+    /// function `f` on the interval \[`a`, `b`\] (see [`bisect`]).
+    /// Store this approximation in `root` and return an interval
+    /// \[a,b\] such that `f`(a) * `f`(b) ≤ 0 (containing `root`) and
+    /// satisfying the termination criterion [`Terminate`].
+    ///
+    /// Note that the above description assumes that `f` is
+    /// continuous.  If it is not, the description of the returned
+    /// interval still holds but it is not guaranteed that `f`
+    /// possesses a root in it.
     #[must_use]
     pub fn root_mut(&mut self, root: &mut T) -> Result<(T,T), Error<T>> {
         let mut a = self.a;  // `a` and `b` finite by construction
@@ -671,9 +690,19 @@ new_root_finding_method!(
     /// where `f(a)` and `f(b)` have opposite signs using Algorithm 748 by
     /// Alefeld, Potro and Shi.
     ///
-    /// The default maximum number of iterations is 100 and can be changed
-    /// using the [`maxiter`][Toms748::maxiter] method.  See the methods
-    /// of [`Toms748`] for more options.
+    /// The default stopping criterion for [`f64`] (resp. [`f32`]) is
+    /// given by [`Tol`] with `rtol: 4. * f64::EPSILON`, and
+    /// `atol: 2e-12` (resp. `rtol:4. * f32::EPSILON` and
+    /// `atol: 2e-6`).  The [`Terminate`] stopping criterion is
+    /// |a - b| ≤ `rtol` · max{|a|, |b|} + `atol`.
+    ///
+    /// The default maximum number of iterations is `100` and reaching
+    /// that many iteration simply returns the root (you can report
+    /// that as an error with the option
+    /// [`maxiter_err`][Bisect::maxiter]`(true)`).  The maximum number
+    /// of iterations can be changed using the
+    /// [`maxiter`][Toms748::maxiter] method.  See the methods of
+    /// [`Toms748`] for more options.
     ///
     /// # Example
     ///
@@ -753,6 +782,21 @@ impl<T, F, Term> Toms748<T, F, Term>
 where T: OrdField,
       F: FnMut(T) -> T,
       Term: Terminate<T> {
+    /// Use the Algorithm 748 to approximate a root of the function
+    /// `f` on the interval \[`a`, `b`\] (see [`toms748`]).  Store
+    /// this approximation in `root` and return an interval \[a,b\]
+    /// such that `f`(a) * `f`(b) ≤ 0 (containing `root`) and
+    /// satisfying the termination criterion [`Terminate`].
+    ///
+    /// Note that the above description assumes that `f` is
+    /// continuous.  If it is not, the description of the returned
+    /// interval still holds but it is not guaranteed that `f`
+    /// possesses a root in it.
+    ///
+    /// The error [`Error::NotFinite`] is returned if the function `f`
+    /// produces a NaN value.  When [`maxiter_err`][Toms748::maxiter_err]
+    /// is turned on, the error [`Error::MaxIter`] is returned if
+    /// the maximum number of iterations is reached.
     #[must_use]
     pub fn root_mut(&mut self, root: &mut T) -> Result<(T,T), Error<T>> {
         let mut a;

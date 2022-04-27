@@ -2,7 +2,7 @@ TIME = time --format "    %Uuser %Ssystem %Eelapsed %PCPU %Mk"
 TMP ?= /tmp
 
 build doc:
-	cargo $@ --features rug
+	cargo $@ --all-features
 
 examples:
 	cargo run --features="rug" --example basic
