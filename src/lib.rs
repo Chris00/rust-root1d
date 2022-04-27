@@ -1510,8 +1510,9 @@ mod tests {
         for i in 2 .. 20 {
             let c = i as f64;
             let f = |x| x * x - c;
-            assert!((root1d::toms748(f, 0., c).atol(0.).rtol(1e-15).root()?
-                     - c.sqrt()).abs() < 1e-15);
+            assert_approx_eq!(
+                root1d::toms748(f, 0., c).atol(0.).rtol(1e-15).root()?,
+                c.sqrt(), 1e-15);
         }
         Ok(())
     }
@@ -1520,7 +1521,7 @@ mod tests {
     fn toms748_large_interval() -> R<f64> {
         let f = |x| x * x - 2.;
         let r = root1d::toms748(f, 1., 1e60).maxiter(130).root()?;
-        assert!((r - 2f64.sqrt()).abs() < 1e-15);
+        assert_approx_eq!(r, 2f64.sqrt(), 1e-15);
         Ok(())
     }
 
@@ -1529,7 +1530,7 @@ mod tests {
         let f = |x| x * x - 2.;
         let stop = |_: &f64, _: &f64, _: &f64, _: &f64| false;
         let r = root1d::toms748(f, 1., 1e60).terminate(stop).root()?;
-        assert!((r - 2f64.sqrt()).abs() < 1e-15);
+        assert_approx_eq!(r, 2f64.sqrt(), 1e-15);
         Ok(())
     }
 
@@ -1537,7 +1538,7 @@ mod tests {
     fn bisect_discontinuous() -> R<f64> {
         let f = |x:f64| 1f64.copysign(x.sin());
         let r = root1d::bisect(f, 3., 4.).root()?;
-        assert!((r - PI).abs() < 1e-12);
+        assert_approx_eq!(r, PI, 1e-12);
         Ok(())
     }
 
@@ -1545,7 +1546,7 @@ mod tests {
     fn toms748_discontinuous() -> R<f64> {
         let f = |x:f64| 1f64.copysign(x.sin());
         let r = root1d::toms748(f, 3., 4.).root()?;
-        assert!((r - PI).abs() < 1e-12);
+        assert_approx_eq!(r, PI, 1e-12);
         Ok(())
     }
 
@@ -1591,8 +1592,9 @@ mod tests_rug {
                 y.assign(x*x);
                 *y -= &b;
             };
-            assert!((root1d::bisect_mut(f, &a, &b).atol(1e-15).root()?
-                     - b.sqrt()).abs() < 1e-15);
+            assert_approx_eq!(
+                root1d::bisect_mut(f, &a, &b).atol(1e-15).root()?,
+                b.sqrt(), 1e-15);
         }
         Ok(())
     }
@@ -1606,8 +1608,8 @@ mod tests_rug {
                 y.assign(x*x);
                 *y -= &b;
             };
-            assert!((root1d::bisect_mut(f, &a, &b).root()?
-                     .to_f64() - (i as f64).sqrt()).abs() < 3e-15);
+            assert_approx_eq!(root1d::bisect_mut(f, &a, &b).root()?.to_f64(),
+                              (i as f64).sqrt(), 3e-15);
         }
         Ok(())
     }
@@ -1621,8 +1623,9 @@ mod tests_rug {
                 y.assign(x * x);
                 *y -= &b;
             };
-            assert!((root1d::toms748_mut(f, &a, &b).atol(1e-15).root()?
-                     - b.sqrt()).abs() < 1e-15);
+            assert_approx_eq!(
+                root1d::toms748_mut(f, &a, &b).atol(1e-15).root()?,
+                b.sqrt(), 1e-15);
         }
         Ok(())
     }
@@ -1636,8 +1639,8 @@ mod tests_rug {
                 y.assign(x*x);
                 *y -= &b;
             };
-            assert!((root1d::toms748_mut(f, &a, &b).root()?
-                     .to_f64() - (i as f64).sqrt()).abs() < 1e-15);
+            assert_approx_eq!(root1d::toms748_mut(f, &a, &b).root()?.to_f64(),
+                              (i as f64).sqrt(), 1e-15);
         }
         Ok(())
     }
