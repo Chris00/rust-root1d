@@ -72,11 +72,12 @@ impl<T: Debug + Display> std::error::Error for Error<T> {}
 /// Trait for termination criteria of the bracketing algorithms.
 pub trait Terminate<T> {
     /// Return `true` if the bracketing [`a`, `b`] of the root is
-    /// deemed good enough.
+    /// deemed good enough.  `fa` and `fb` are the values of the
+    /// function `f` at `a` and `b` respectively.
     ///
     /// This function may mutate `self` as it may contain resources
     /// that are not reallocated at every call of `stop`.
-    fn stop(&mut self, a: &T, b: &T) -> bool;
+    fn stop(&mut self, a: &T, b: &T, fa: &T, fb: &T) -> bool;
 }
 
 /// Indicate that the type `Self` uses relative and absolute
@@ -88,11 +89,18 @@ pub trait SetTolerances<U> {
     fn set_atol(&mut self, atol: U);
 }
 
-/// Enable using a closure as a termination criterion.
+/// Enable using a closure `stop` as a termination criterion.  The
+/// call `stop(a, b, fa, fb)` must say whether the interval
+/// \[`a`, `b`\] is satisfactory (in which case it must return `true`)
+/// or not.  `fa` and `fb` are the values of the fonction to which the
+/// root-finding algorithm is applied at the bounds `a` and `b`
+/// respectively.
 impl<T,F> Terminate<T> for F
-where F: FnMut(&T, &T) -> bool,
+where F: FnMut(&T, &T, &T, &T) -> bool,
       T: Bisectable {
-    fn stop(&mut self, a: &T, b: &T) -> bool { self(a, b) }
+    fn stop(&mut self, a: &T, b: &T, fa: &T, fb: &T) -> bool {
+        self(a, b, fa, fb)
+    }
 }
 
 /// Termination criterion based on a relative tolerance `rtol` an
@@ -119,7 +127,7 @@ macro_rules! impl_traits_tol_fXX {
         }
         impl Terminate<$t> for Tol<$t> {
             #[inline]
-            fn stop(&mut self, a: &$t, b: &$t) -> bool {
+            fn stop(&mut self, a: &$t, b: &$t, _fa: &$t, _fb: &$t) -> bool {
                 (a - b).abs() <= self.rtol * a.abs().max(b.abs()) + self.atol
             }
         }
@@ -455,12 +463,12 @@ where T: Bisectable + Copy,
         root.assign_mid(&a, &b);
         for _ in 0 .. self.maxiter {
             root.assign_mid(&a, &b);
-            if self.t.stop(&a, &b) {
+            if self.t.stop(&a, &b, &fa, &fb) {
                 return Ok((a, b));
             }
             let fx = (self.f)(*root);
-            if fx.lt0() { a = *root }
-            else if fx.gt0() { b = *root }
+            if fx.lt0() { a = *root;  fa = fx; }
+            else if fx.gt0() { b = *root;  fb = fx; }
             else if fx.is_finite() { return Ok((a, b)) }
             else { return Err(Error::NotFinite{ x: *root, fx }) }
         }
@@ -506,14 +514,14 @@ new_root_finding_method! (
     bisect_mut,
     /// Bisection algorithm (for non-[`Copy`] types).
     BisectMut<'a,...>,
-    workspace, Option<&'a mut (T,T,T)>);
+    workspace, Option<&'a mut (T,T,T,T,T)>);
 
 impl<'a, T, F, Term> BisectMut<'a, T, F, Term>
 where T: Bisectable, Term: Terminate<T> {
     /// Provide variables that will be used as workspace when running
     /// the bisection algorithm.
     #[must_use]
-    pub fn work(mut self, w: &'a mut (T,T,T)) -> Self {
+    pub fn work(mut self, w: &'a mut (T,T,T,T,T)) -> Self {
         self.workspace = Some(w);
         self
     }
@@ -574,17 +582,17 @@ where T: Bisectable,
     #[must_use]
     pub fn root_mut(&mut self, root: &mut T) -> Result<(), Error<T>> {
         let mut tmp;
-        let (a, b, fx) = match &mut self.workspace {
+        let (a, b, fa, fb, fx) = match &mut self.workspace {
             None => {
-                tmp = (root.clone(), root.clone(), root.clone());
-                (&mut tmp.0, &mut tmp.1, &mut tmp.2)
+                tmp = (root.clone(), root.clone(), root.clone(),
+                       root.clone(), root.clone());
+                (&mut tmp.0, &mut tmp.1, &mut tmp.2, &mut tmp.3, &mut tmp.4)
             }
-            Some(v) => (&mut v.0, &mut v.1, &mut v.2)
+            Some(v) =>
+                (&mut v.0, &mut v.1, &mut v.2, &mut v.3, &mut v.4)
         };
-        // We use `a` and `b` to hold `f(a)` and `f(b)` (they cannot
-        // be both `fx` for the mutable borrow restrictions).
         match check_sign_mut("root1d::bisect_mut", self.a, self.b,
-                             &mut self.f, a, b)? {
+                             &mut self.f, fa, fb)? {
             SignChange::NegPos => {
                 a.assign(self.a);
                 b.assign(self.b);
@@ -592,6 +600,7 @@ where T: Bisectable,
             SignChange::PosNeg => {
                 a.assign(self.b);
                 b.assign(self.a);
+                swap(fa, fb);
             }
             SignChange::Root1 => {
                 root.assign(self.a);
@@ -605,13 +614,15 @@ where T: Bisectable,
         // f(a) < 0 < f(b)
         for _ in 0 .. self.maxiter {
             root.assign_mid(a, b);
-            if self.t.stop(a, b) {
+            if self.t.stop(a, b, fa, fb) {
                 return Ok(());
             }
             (self.f)(fx, root);
             // `swap` so as to reuse allocated memory.
-            if fx.lt0() { swap(a, root) }
-            else if fx.gt0() { swap(b, root) }
+            if fx.lt0() { swap(a, root);
+                          swap(fa, fx); }
+            else if fx.gt0() { swap(b, root);
+                               swap(fb, fx); }
             else if fx.is_finite() { return Ok(()) }
             else {
                 return Err(Error::NotFinite{ x: root.clone(), fx: fx.clone() })
@@ -730,14 +741,14 @@ macro_rules! bracket_sign {
      $fa: ident $fb: ident $fc: ident $fd: ident, $self: ident, $x: ident,
      $assign: ident, $ok_val: ident, $lt0: ident, $gt0: ident) => {
         if $fc.$lt0() {
-            if $self.t.stop(&$c, &$b) {
+            if $self.t.stop(&$c, &$b, &$fc, &$fb) {
                 $x.assign_mid(&$c, &$b);
                 return Ok($ok_val!($c, $b))
             }
             $assign!($d, $a);  $assign!($fd, $fa);
             $assign!($a, $c);  $assign!($fa, $fc); // `$b` and `$fb` unchanged
         } else if $fc.$gt0() {
-            if $self.t.stop(&$a, &$c) {
+            if $self.t.stop(&$a, &$c, &$fa, &$fc) {
                 $x.assign_mid(&$a, &$c);
                 return Ok($ok_val!($a, $c))
             }
@@ -808,13 +819,13 @@ where T: OrdField,
             a = self.b;
             b = self.a;
         };
+        let mut fa = (self.f)(a);
+        let mut fb = (self.f)(b);
         // a ≤ b, `a` and `b` finite by construction
-        if self.t.stop(&a, &b) {
+        if self.t.stop(&a, &b, &fa, &fb) {
             root.assign_mid(&a, &b);
             return Ok((a,b))
         }
-        let mut fa = (self.f)(a);
-        let mut fb = (self.f)(b);
         let mut d;
         let mut fd;
         let mut e;
@@ -1094,10 +1105,6 @@ where T: OrdFieldMut,
             b.assign(self.a);
         }
         // a ≤ b, `a` and `b` finite by construction
-        if self.t.stop(&a, &b) {
-            root.assign_mid(a, b);
-            return Ok(())
-        }
         macro_rules! body {
             ($bracket: ident) => {
                 body!(n=2, $bracket);
@@ -1117,6 +1124,11 @@ where T: OrdFieldMut,
                 root.assign_mid(&a, &b);
             };
             (n=2, $bracket: ident) => {
+                // `fa` and `fb` set by `check_sign_mut`.
+                if self.t.stop(&a, &b, &fa, &fb) {
+                    root.assign_mid(a, b);
+                    return Ok(())
+                }
                 // 4.2.1 = 4.1.1: (a, b) = (a₁, b₁)
                 c.assign(a);
                 t1.assign(b);  *t1 -= a;  *t1 *= fa;
@@ -1303,7 +1315,7 @@ mod rug {
             }
             impl Terminate<$t> for TolRug<$t> {
                 #[inline]
-                fn stop(&mut self, a: &$t, b: &$t) -> bool {
+                fn stop(&mut self, a: &$t, b: &$t, _: &$t, _: &$t) -> bool {
                     let tmp1 = self.tmp1.get_mut();
                     let tmp2 = self.tmp2.get_mut();
                     tmp2.assign(a);
@@ -1476,7 +1488,7 @@ mod tests {
     #[test]
     fn toms748_no_term() -> R<f64> {
         let f = |x| x * x - 2.;
-        let stop = |_: &f64, _: &f64| false;
+        let stop = |_: &f64, _: &f64, _: &f64, _: &f64| false;
         let r = root1d::toms748(f, 1., 1e60).terminate(stop).root()?;
         assert!((r - 2f64.sqrt()).abs() < 1e-15);
         Ok(())

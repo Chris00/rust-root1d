@@ -17,7 +17,8 @@ fn main() -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
     let r = bisect_mut(f2, &a, &pi).rtol(1e-20).atol(0.).root()?;
     println!("f2: {} (prec: {})", r, r.prec());
 
-    let mut w = (Float::new(53), Float::new(53), Float::new(53));
+    let mut w = (Float::new(53), Float::new(53), Float::new(53),
+                 Float::new(53), Float::new(53));
     let a = Float::with_val(53, 0.);
     let b = Float::with_val(53, 10.);
     let mut r = a.clone();
