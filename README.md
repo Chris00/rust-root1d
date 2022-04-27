@@ -24,10 +24,12 @@ For more information, consult the
 ## Highlights
 
 - Efficient & fully generic code.
-- Convenient interface with optional arguments.
+- Convenient interface with optional arguments and default termination
+  criteria.
 - Support for non-copy types (for multi-precision numbers) minimizing
   the creation of temporary values.
-- State of the art root finding algorithm ([Toms748][]).
+- State of the art root finding algorithm ([Toms748][]) requiring only
+  few evaluations of the function.
 
 [`rug::Float`]: https://docs.rs/rug/latest/rug/struct.Float.html
 [`rug::Rational`]: https://docs.rs/rug/latest/rug/struct.Rational.html
