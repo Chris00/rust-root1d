@@ -1404,6 +1404,7 @@ mod rug {
 
 #[cfg(test)]
 mod tests {
+    use std::f64::consts::PI;
     use crate as root1d;
     //use test::bench::Bencher;
 
@@ -1434,6 +1435,22 @@ mod tests {
         let stop = |_: &f64, _: &f64| false;
         let r = root1d::toms748(f, 1., 1e60).terminate(stop).root()?;
         assert!((r - 2f64.sqrt()).abs() < 1e-15);
+        Ok(())
+    }
+
+    #[test]
+    fn bisect_discontinuous() -> R<f64> {
+        let f = |x:f64| 1f64.copysign(x.sin());
+        let r = root1d::bisect(f, 3., 4.).root()?;
+        assert!((r - PI).abs() < 1e-12);
+        Ok(())
+    }
+
+    #[test]
+    fn toms748_discontinuous() -> R<f64> {
+        let f = |x:f64| 1f64.copysign(x.sin());
+        let r = root1d::toms748(f, 3., 4.).root()?;
+        assert!((r - PI).abs() < 1e-12);
         Ok(())
     }
 
