@@ -409,15 +409,18 @@ where T: Bisectable + Copy,
     /// maximum number of iterations was reached.
     pub fn root(&mut self) -> Result<T, Error<T>> {
         let mut x = self.a;
-        self.root_gen(&mut x)
+        self.root_mut(&mut x).and(Ok(x))
     }
 
-    /// Same as [`root`][Bisect::root] but store the result in `root`.
-    pub fn root_mut(&mut self, root: &mut T) -> Result<(), Error<T>> {
-        self.root_gen(root).and(Ok(()))
+    /// Return an interval containing the root.  See
+    /// [`root_mut`][Bisect::root_mut] for more information.
+    pub fn bracket(&mut self) -> Result<(T,T), Error<T>> {
+        let mut x = self.a;
+        self.root_mut(&mut x)
     }
 
-    fn root_gen(&mut self, x: &mut T) -> Result<T, Error<T>> {
+    #[must_use]
+    pub fn root_mut(&mut self, root: &mut T) -> Result<(T,T), Error<T>> {
         let mut a = self.a;  // `a` and `b` finite by construction
         let mut b = self.b;
         let mut fa = (self.f)(a);
@@ -426,28 +429,28 @@ where T: Bisectable + Copy,
             SignChange::NegPos => (),
             SignChange::PosNeg => { swap(&mut a, &mut b);
                                     swap(&mut fa, &mut fb) },
-            SignChange::Root1 => return Ok(a),
-            SignChange::Root2 => return Ok(b),
+            SignChange::Root1 => { *root = a;  return Ok((a, a))}
+            SignChange::Root2 => { *root = b;  return Ok((b, b))}
         }
         // f(a) < 0 < f(b)
-        x.assign_mid(&a, &b);
+        root.assign_mid(&a, &b);
         for _ in 0 .. self.maxiter {
-            x.assign_mid(&a, &b);
+            root.assign_mid(&a, &b);
             if self.t.stop(&a, &b) {
-                return Ok(*x);
+                return Ok((a, b));
             }
-            let fx = (self.f)(*x);
-            if fx.lt0() { a = *x }
-            else if fx.gt0() { b = *x }
-            else if fx.is_finite() { return Ok(*x) }
-            else { return Err(Error::NotFinite{ x: *x, fx }) }
+            let fx = (self.f)(*root);
+            if fx.lt0() { a = *root }
+            else if fx.gt0() { b = *root }
+            else if fx.is_finite() { return Ok((a, b)) }
+            else { return Err(Error::NotFinite{ x: *root, fx }) }
         }
 
         if self.maxiter_err {
             Err(Error::MaxIter)
         } else {
-            x.assign_mid(&a, &b);
-            Ok(*x)
+            root.assign_mid(&a, &b);
+            Ok((a, b))
         }
     }
 }
@@ -700,20 +703,20 @@ macro_rules! bracket_sign {
         if $fc.$lt0() {
             if $self.t.stop(&$c, &$b) {
                 $x.assign_mid(&$c, &$b);
-                return Ok($ok_val!(*$x))
+                return Ok($ok_val!($c, $b))
             }
             $assign!($d, $a);  $assign!($fd, $fa);
             $assign!($a, $c);  $assign!($fa, $fc); // `$b` and `$fb` unchanged
         } else if $fc.$gt0() {
             if $self.t.stop(&$a, &$c) {
                 $x.assign_mid(&$a, &$c);
-                return Ok($ok_val!(*$x))
+                return Ok($ok_val!($a, $c))
             }
             $assign!($d, $b);  $assign!($fd, $fb);
             $assign!($b, $c);  $assign!($fb, $fc); // `$a` and `$fa` unchanged
         } else if $fc.is_finite() {
             $assign!(*$x, $c);
-            return Ok($ok_val!($c))
+            return Ok($ok_val!($c, $c))
         } else {
             return Err(Error::NotFinite{ x: $c.clone(), fx: $fc.clone() })
         }
@@ -721,7 +724,7 @@ macro_rules! bracket_sign {
 }
 
 macro_rules! assign_copy { ($y: expr, $x: ident) => { $y = $x } }
-macro_rules! ok_copy { ($root: expr) => { $root } }
+macro_rules! ok_copy { ($a: expr, $b: expr) => { ($a, $b) } }
 
 /// `bracket_neg_pos!(a b c d, fa fb fc fd, self, x)`: update `a`,
 /// `b`, and `d` (and the corresponding `fa`, `fb` and `fd`) according
@@ -750,23 +753,8 @@ impl<T, F, Term> Toms748<T, F, Term>
 where T: OrdField,
       F: FnMut(T) -> T,
       Term: Terminate<T> {
-    /// Return `Ok(r)` where `r` is a root of the function or `Err`
-    /// indicating that the function returned a NaN value or, if
-    /// [`maxiter_err`][Toms748::maxiter_err] was turned on, that the
-    /// maximum number of iterations was reached.
     #[must_use]
-    pub fn root(&mut self) -> Result<T, Error<T>> {
-        let mut x = self.a;
-        self.root_gen(&mut x)
-    }
-
-    /// Same as [`root`][Toms748::root] but store the result in `root`.
-    #[must_use]
-    pub fn root_mut(&mut self, root: &mut T) -> Result<(), Error<T>> {
-        self.root_gen(root).and(Ok(()))
-    }
-
-    fn root_gen(&mut self, x: &mut T) -> Result<T, Error<T>> {
+    pub fn root_mut(&mut self, root: &mut T) -> Result<(T,T), Error<T>> {
         let mut a;
         let mut b;
         if self.a <= self.b {
@@ -778,8 +766,8 @@ where T: OrdField,
         };
         // a ≤ b, `a` and `b` finite by construction
         if self.t.stop(&a, &b) {
-            x.assign_mid(&a, &b);
-            return Ok(*x)
+            root.assign_mid(&a, &b);
+            return Ok((a,b))
         }
         let mut fa = (self.f)(a);
         let mut fb = (self.f)(b);
@@ -803,7 +791,7 @@ where T: OrdField,
                 if self.maxiter_err {
                     return Err(Error::MaxIter)
                 }
-                x.assign_mid(&a, &b);
+                root.assign_mid(&a, &b);
             };
             (n=2, $bracket: ident) => {
                 // 4.2.1 = 4.1.1: (a, b) = (a₁, b₁)
@@ -813,7 +801,7 @@ where T: OrdField,
                 }
                 // 4.2.2 = 4.1.2: (a, b, d) = (a₂, b₂, d₂)
                 let fc1 = (self.f)(c1);
-                $bracket!(a b c1 d, fa fb fc1 fd, self, x);
+                $bracket!(a b c1 d, fa fb fc1 fd, self, root);
                 // 4.2.3
                 let c2 = Self::newton_quadratic::<1>(a, b, d, fa, fb, fd);
                 body!(step, c2, $bracket)
@@ -827,7 +815,7 @@ where T: OrdField,
                 e = d; // ẽₙ  (eₙ no longer used)
                 fe = fd; // f(ẽₙ)
                 // (a, b, d) = (ãₙ, b̃ₙ, d̃ₙ)
-                $bracket!(a b $c d, fa fb fc fd, self, x);
+                $bracket!(a b $c d, fa fb fc fd, self, root);
                 // 4.2.5
                 let mut c = Self::ipzero(a, b, d, e, fa, fb, fd, fe);
                 if !c.is_inside_interval(&a, &b) {
@@ -835,7 +823,7 @@ where T: OrdField,
                 };
                 // 4.2.6: (a, b, d) = (a̅ₙ, b̅ₙ, d̅ₙ)
                 let fc = (self.f)(c);
-                $bracket!(a b c d, fa fb fc fd, self, x);
+                $bracket!(a b c d, fa fb fc fd, self, root);
                 // 4.2.7 = 4.1.5: u = uₙ
                 let u = if fa.abs() < fb.abs() { a } else { b };
                 // 4.2.8 = 4.1.6: c = c̅ₙ
@@ -849,24 +837,24 @@ where T: OrdField,
                 let fc = (self.f)(c);
                 e = d; // save d̅ₙ and anticipate eₙ₊₁ = d̅ₙ
                 fe = fd;
-                $bracket!(a b c d, fa fb fc fd, self, x);
+                $bracket!(a b c d, fa fb fc fd, self, root);
                 // 4.2.11 = 4.1.9
                 // Nothing to do for the first case.
                 if (b - a).twice() >= dist_an_bn { // μ = 1/2
                     e = d;  fe = fd; // eₙ₊₁ = d̂ₙ
                     c.assign_mid(&a, &b); // reuse `c`
                     let fmid = (self.f)(c);
-                    $bracket!(a b c d, fa fb fmid fd, self, x);
+                    $bracket!(a b c d, fa fb fmid fd, self, root);
                 }
             }
         }
         match check_sign("root1d::toms748", a, b, fa, fb)? {
             SignChange::NegPos => { body!(bracket_neg_pos); }
             SignChange::PosNeg => { body!(bracket_pos_neg); },
-            SignChange::Root1 => return Ok(a),
-            SignChange::Root2 => return Ok(b),
+            SignChange::Root1 => { *root = a;  return Ok((a,a)) }
+            SignChange::Root2 => { *root = b;  return Ok((b,b)) }
         }
-        Ok(*x)
+        Ok((a,b))
     }
 
     /// Evaluate with `K`+1 Newton iterations the root of the quadratic
@@ -912,6 +900,23 @@ where T: OrdField,
         let q33 = (d32 - q22) * fa / (fd - fa);
         a + (q31 + q32 + q33)
     }
+
+    /// Return `Ok(r)` where `r` is a root of the function or `Err` if
+    /// the algorithm did not converge.  See
+    /// [`root_mut`][Toms748::root_mut] for more information.
+    #[must_use]
+    pub fn root(&mut self) -> Result<T, Error<T>> {
+        let mut x = self.a;
+        self.root_mut(&mut x).and(Ok(x))
+    }
+
+    /// Return an interval containing the root.  See
+    /// [`root_mut`][Toms748::root_mut] for more information.
+    pub fn bracket(&mut self) -> Result<(T,T), Error<T>> {
+        let mut x = self.a;
+        self.root_mut(&mut x)
+    }
+
 }
 
 ////////////////////////////////////////////////////////////////////////
@@ -970,7 +975,7 @@ where T: OrdFieldMut,
 }
 
 macro_rules! assign_mut { ($y: expr, $x: ident) => { $y.assign($x) } }
-macro_rules! ok_mut { ($root: expr) => { () } }
+macro_rules! ok_mut { ($a: expr, $b: expr) => { () } }
 
 /// `bracket_neg_pos!(a b c d, fa fb fc fd, self, x)`: update `a`,
 /// `b`, and `d` (and the corresponding `fa`, `fb` and `fd`) according
