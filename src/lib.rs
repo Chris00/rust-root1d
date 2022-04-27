@@ -73,7 +73,8 @@ impl<T: Debug + Display> std::error::Error for Error<T> {}
 pub trait Terminate<T> {
     /// Return `true` if the bracketing [`a`, `b`] of the root is
     /// deemed good enough.  `fa` and `fb` are the values of the
-    /// function `f` at `a` and `b` respectively.
+    /// function `f` at `a` and `b` respectively.  You can assume
+    /// that `a <= b`.
     ///
     /// This function may mutate `self` as it may contain resources
     /// that are not reallocated at every call of `stop`.
@@ -128,7 +129,7 @@ macro_rules! impl_traits_tol_fXX {
         impl Terminate<$t> for Tol<$t> {
             #[inline]
             fn stop(&mut self, a: &$t, b: &$t, _fa: &$t, _fb: &$t) -> bool {
-                (a - b).abs() <= self.rtol * a.abs().max(b.abs()) + self.atol
+                b - a <= self.rtol * a.abs().max(b.abs()) + self.atol
             }
         }
         // We only implement this for certain types (and not
@@ -158,7 +159,7 @@ impl_traits_tol_fXX!(f32, 4. * f32::EPSILON, 2e-6);
 // Bisectable types
 
 /// Trait indicating that the type is suitable for the bisection algorithm.
-pub trait Bisectable: Clone + Debug {
+pub trait Bisectable: PartialOrd + Clone + Debug {
     /// Type for the default termination criteria.
     type DefaultTerminate: Default + Terminate<Self>;
 
@@ -448,29 +449,38 @@ where T: Bisectable + Copy,
     /// possesses a root in it.
     #[must_use]
     pub fn root_mut(&mut self, root: &mut T) -> Result<(T,T), Error<T>> {
-        let mut a = self.a;  // `a` and `b` finite by construction
-        let mut b = self.b;
+        let mut a;
+        let mut b;
+        if self.a <= self.b {
+            a = self.a;
+            b = self.b;
+        } else {
+            a = self.b;
+            b = self.a;
+        };
+        // `a <= b`, both finite by construction
         let mut fa = (self.f)(a);
         let mut fb = (self.f)(b);
+        macro_rules! body {
+            ($lt0: ident, $gt0: ident) => {
+                for _ in 0 .. self.maxiter {
+                    root.assign_mid(&a, &b);
+                    if self.t.stop(&a, &b, &fa, &fb) {
+                        return Ok((a, b));
+                    }
+                    let fx = (self.f)(*root);
+                    if fx.$lt0() { a = *root;  fa = fx; }
+                    else if fx.$gt0() { b = *root;  fb = fx; }
+                    else if fx.is_finite() { return Ok((a, b)) }
+                    else { return Err(Error::NotFinite{ x: *root, fx }) }
+                }
+            }
+        }
         match check_sign("root1d::bisect", a, b, fa, fb)? {
-            SignChange::NegPos => (),
-            SignChange::PosNeg => { swap(&mut a, &mut b);
-                                    swap(&mut fa, &mut fb) },
+            SignChange::NegPos => { body!(lt0, gt0) } // f(a) < 0 < f(b)
+            SignChange::PosNeg => { body!(gt0, lt0) },
             SignChange::Root1 => { *root = a;  return Ok((a, a))}
             SignChange::Root2 => { *root = b;  return Ok((b, b))}
-        }
-        // f(a) < 0 < f(b)
-        root.assign_mid(&a, &b);
-        for _ in 0 .. self.maxiter {
-            root.assign_mid(&a, &b);
-            if self.t.stop(&a, &b, &fa, &fb) {
-                return Ok((a, b));
-            }
-            let fx = (self.f)(*root);
-            if fx.lt0() { a = *root;  fa = fx; }
-            else if fx.gt0() { b = *root;  fb = fx; }
-            else if fx.is_finite() { return Ok((a, b)) }
-            else { return Err(Error::NotFinite{ x: *root, fx }) }
         }
 
         if self.maxiter_err {
@@ -591,17 +601,39 @@ where T: Bisectable,
             Some(v) =>
                 (&mut v.0, &mut v.1, &mut v.2, &mut v.3, &mut v.4)
         };
-        match check_sign_mut("root1d::bisect_mut", self.a, self.b,
+        if self.a <= self.b {
+            a.assign(self.a);
+            b.assign(self.b);
+        } else {
+            a.assign(self.b);
+            b.assign(self.a);
+        }
+        // `a <= b`, both finite by construction
+        macro_rules! body {
+            ($lt0: ident, $gt0: ident) => {
+                for _ in 0 .. self.maxiter {
+                    root.assign_mid(a, b);
+                    if self.t.stop(a, b, fa, fb) {
+                        return Ok(());
+                    }
+                    (self.f)(fx, root);
+                    // `swap` so as to reuse allocated memory.
+                    if fx.$lt0() { swap(a, root);
+                                   swap(fa, fx); }
+                    else if fx.$gt0() { swap(b, root);
+                                       swap(fb, fx); }
+                    else if fx.is_finite() { return Ok(()) }
+                    else {
+                        return Err(Error::NotFinite{ x: root.clone(),
+                                                     fx: fx.clone() })
+                    }
+                }
+            }
+        }
+        match check_sign_mut("root1d::bisect_mut", a, b,
                              &mut self.f, fa, fb)? {
-            SignChange::NegPos => {
-                a.assign(self.a);
-                b.assign(self.b);
-            }
-            SignChange::PosNeg => {
-                a.assign(self.b);
-                b.assign(self.a);
-                swap(fa, fb);
-            }
+            SignChange::NegPos => { body!(lt0, gt0) } // f(a) < 0 < f(b)
+            SignChange::PosNeg => { body!(gt0, lt0) }
             SignChange::Root1 => {
                 root.assign(self.a);
                 return Ok(())
@@ -609,23 +641,6 @@ where T: Bisectable,
             SignChange::Root2 => {
                 root.assign(self.b);
                 return Ok(())
-            }
-        }
-        // f(a) < 0 < f(b)
-        for _ in 0 .. self.maxiter {
-            root.assign_mid(a, b);
-            if self.t.stop(a, b, fa, fb) {
-                return Ok(());
-            }
-            (self.f)(fx, root);
-            // `swap` so as to reuse allocated memory.
-            if fx.lt0() { swap(a, root);
-                          swap(fa, fx); }
-            else if fx.gt0() { swap(b, root);
-                               swap(fb, fx); }
-            else if fx.is_finite() { return Ok(()) }
-            else {
-                return Err(Error::NotFinite{ x: root.clone(), fx: fx.clone() })
             }
         }
 
@@ -654,7 +669,7 @@ where T: Bisectable,
 
 /// Requirements on the type `T` to be able to use [`toms748`]
 /// algorithm.
-pub trait OrdField: Bisectable + PartialOrd + Copy
+pub trait OrdField: Bisectable + Copy
     + Neg<Output = Self>
     + Add<Self, Output = Self>
     + Sub<Self, Output = Self>
@@ -980,7 +995,7 @@ where T: OrdField,
 
 /// Requirements on the type `T` to be able to use [`toms748_mut`]
 /// algorithm.
-pub trait OrdFieldMut: Bisectable + PartialOrd
+pub trait OrdFieldMut: Bisectable
     + for<'a> AddAssign<&'a Self>
     + for<'a> SubAssign<&'a Self>
     + for<'a> MulAssign<&'a Self>
@@ -1327,9 +1342,8 @@ mod rug {
                     }
                     *tmp2 *= &self.rtol; // rtol * max{|a|, |b|}
                     *tmp2 += &self.atol;
-                    tmp1.assign(a);
-                    *tmp1 -= b;
-                    tmp1.abs_mut(); // |a - b|
+                    tmp1.assign(b);
+                    *tmp1 -= a; // b - a
                     tmp1 <= tmp2
                 }
             }
@@ -1456,6 +1470,21 @@ mod rug {
 }
 
 
+////////////////////////////////////////////////////////////////////////
+//
+// Tests
+
+#[cfg(test)]
+macro_rules! assert_approx_eq {
+    ($a: expr, $b: expr, $err: expr) => {
+        let a = $a;
+        let b = $b;
+        if ! ((a.clone() - b.clone()).abs() <= $err) {
+            panic!("|left - right| ≤ {:e}\n  left: {}\n right: {}",
+                   $err, a, b);
+        }
+    }
+}
 
 
 #[cfg(test)]
@@ -1465,6 +1494,16 @@ mod tests {
     //use test::bench::Bencher;
 
     type R<T> = Result<(), root1d::Error<T>>;
+
+    #[test]
+    fn bisect_decr_bounds() -> R<f64> {
+        let f = |x| x * x - 2.;
+        assert_approx_eq!(root1d::bisect(f, 2., 0.).maxiter_err(true).root()?,
+                          2f64.sqrt(), 1e-12);
+        assert_approx_eq!(root1d::bisect(f, 0., -2.).maxiter_err(true).root()?,
+                          - 2f64.sqrt(), 1e-12);
+        Ok(())
+    }
 
     #[test]
     fn toms748() -> R<f64> {
@@ -1523,6 +1562,24 @@ mod tests_rug {
     use rug::{Assign, Float, Rational};
 
     type R<T> = Result<(), root1d::Error<T>>;
+
+    #[test]
+    fn bisect_decr_bounds() -> R<Float> {
+        let f = |y: &mut Float, x: &Float| {
+            y.assign(x*x);
+            *y -= 2.;
+        };
+        let a = Float::with_val(53, -2_f64);
+        let b = Float::with_val(53, 0f64);
+        let c = Float::with_val(53, 2_f64);
+        assert_approx_eq!(
+            root1d::bisect_mut(f, &c, &b).maxiter_err(true).root()?.to_f64(),
+            2f64.sqrt(), 1e-12);
+        assert_approx_eq!(
+            root1d::bisect_mut(f, &b, &a).maxiter_err(true).root()?.to_f64(),
+            - 2f64.sqrt(), 1e-12);
+        Ok(())
+    }
 
     #[test]
     fn bisection() -> R<Float> {
