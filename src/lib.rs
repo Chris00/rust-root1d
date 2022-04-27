@@ -1558,6 +1558,7 @@ mod tests {
 
 #[cfg(all(test, feature = "rug"))]
 mod tests_rug {
+    use std::f64::consts::PI;
     use crate as root1d;
     use rug::{Assign, Float, Rational};
 
@@ -1638,6 +1639,19 @@ mod tests_rug {
             assert!((root1d::toms748_mut(f, &a, &b).root()?
                      .to_f64() - (i as f64).sqrt()).abs() < 1e-15);
         }
+        Ok(())
+    }
+
+    #[test]
+    fn bisect_discontinuous() -> R<Float> {
+        let a = Float::with_val(53, 3f64);
+        let b = Float::with_val(53, 4f64);
+        let f = |y: &mut Float, x: &Float| {
+            y.assign(1.);
+            y.copysign_mut(&Float::with_val(53, x.sin_ref()))
+        };
+        assert_approx_eq!(root1d::bisect_mut(f, &a, &b).root()?.to_f64(),
+                          PI, 1e-12);
         Ok(())
     }
 }
