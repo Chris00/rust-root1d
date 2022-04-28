@@ -681,11 +681,6 @@ pub trait OrdField: Bisectable + Copy
         /// Return twice the value of `self`.
         fn twice(self) -> Self;
 
-        /// Return the absolute value of `self`.
-        fn abs(self) -> Self {
-            if self.lt0() { -self } else { self }
-        }
-
         /// Return `true` if `self` ∈ \]`a`, `b`\[.  If `c` is NaN or
         /// ±∞ (coming, say, from a division by 0), this function must
         /// return `false`.  It may be assumed that `a <= b`.
@@ -702,8 +697,6 @@ macro_rules! impl_ordfield_fXX {
             fn is_zero(self) -> bool { self == 0. }
             #[inline]
             fn twice(self) -> Self { 2. * self }
-            #[inline]
-            fn abs(self) -> Self { <$t>::abs(self) }
         }
     }
 }
@@ -784,25 +777,19 @@ macro_rules! ok_copy { ($a: expr, $b: expr) => { ($a, $b) } }
 /// `bracket_neg_pos!(a b c d, fa fb fc fd, self, x)`: update `a`,
 /// `b`, and `d` (and the corresponding `fa`, `fb` and `fd`) according
 /// to the sign of `fc`.
-/// Assume f(a) < 0 < f(b).  The same invariant is true on exit.
-macro_rules! bracket_neg_pos {
+/// Assume f(a).`$lt0()` and f(b).$gt0()`.  The same invariant is true
+/// on exit.
+macro_rules! bracket_copy {
     ($a: ident $b: ident $c: ident $d: ident,
      $fa: ident $fb: ident $fc: ident $fd: ident,
-     $self: ident, $x: ident) => {
+     $self: ident, $x: ident, $lt0: ident, $gt0: ident) => {
         bracket_sign!($a $b $c $d, $fa $fb $fc $fd, $self, $x,
-                      assign_copy, ok_copy, lt0, gt0)
+                      assign_copy, ok_copy, $lt0, $gt0)
     }
 }
 
-/// Same as `bracket_neg_pos` but assume f(a) > 0 > f(b).
-macro_rules! bracket_pos_neg {
-    ($a: ident $b: ident $c: ident $d: ident,
-     $fa: ident $fb: ident $fc: ident $fd: ident,
-     $self: ident, $x: ident) => {
-        bracket_sign!($a $b $c $d, $fa $fb $fc $fd, $self, $x,
-                      assign_copy, ok_copy, gt0, lt0)
-    }
-}
+macro_rules! abs_lt_neg_pos { ($x: expr, $y: expr) => { - $x < $y } }
+macro_rules! abs_lt_pos_neg { ($x: expr, $y: expr) => { $x < - $y } }
 
 impl<T, F, Term> Toms748<T, F, Term>
 where T: OrdField,
@@ -848,22 +835,22 @@ where T: OrdField,
         // The state is (a, b, d, e) together with the values of `f`
         // at these points.
         macro_rules! body {
-            ($bracket: ident) => {
-                body!(n=2, $bracket);
+            ($lt0: ident, $gt0: ident, $abs_lt: ident) => {
+                body!(n=2, $lt0, $gt0, $abs_lt);
                 for _ in 1 .. self.maxiter {
                     // 4.2.3: (a, b, d, e) = (aₙ, bₙ, dₙ, eₙ)
                     let mut c = Self::ipzero(a, b, d, e, fa, fb, fd, fe);
                     if !c.is_inside_interval(&a, &b) {
                         c = Self::newton_quadratic::<1>(a, b, d, fa, fb, fd);
                     };
-                    body!(step, c, $bracket);
+                    body!(step, c, $lt0, $gt0, $abs_lt);
                 }
                 if self.maxiter_err {
                     return Err(Error::MaxIter)
                 }
                 root.assign_mid(&a, &b);
             };
-            (n=2, $bracket: ident) => {
+            (n=2, $lt0: ident, $gt0: ident, $abs_lt: ident) => {
                 // 4.2.1 = 4.1.1: (a, b) = (a₁, b₁)
                 let mut c1 = a - (fa / (fb - fa)) * (b - a);
                 if !c1.is_inside_interval(&a, &b) {
@@ -871,21 +858,21 @@ where T: OrdField,
                 }
                 // 4.2.2 = 4.1.2: (a, b, d) = (a₂, b₂, d₂)
                 let fc1 = (self.f)(c1);
-                $bracket!(a b c1 d, fa fb fc1 fd, self, root);
+                bracket_copy!(a b c1 d, fa fb fc1 fd, self, root, $lt0, $gt0);
                 // 4.2.3
                 let c2 = Self::newton_quadratic::<1>(a, b, d, fa, fb, fd);
-                body!(step, c2, $bracket)
+                body!(step, c2, $lt0, $gt0, $abs_lt)
             };
             // Assume (a, b, d) = (aₙ, bₙ, dₙ) and (fa, fb, fd) =
             // (f(aₙ), f(bₙ), f(dₙ)), take cₙ, and update the state.
-            (step, $c: ident, $bracket: ident) => {
+            (step, $c: ident, $lt0: ident, $gt0: ident, $abs_lt: ident) => {
                 let dist_an_bn = b - a;
                 // 4.2.4
                 let fc = (self.f)($c);
                 e = d; // ẽₙ  (eₙ no longer used)
                 fe = fd; // f(ẽₙ)
                 // (a, b, d) = (ãₙ, b̃ₙ, d̃ₙ)
-                $bracket!(a b $c d, fa fb fc fd, self, root);
+                bracket_copy!(a b $c d, fa fb fc fd, self, root, $lt0, $gt0);
                 // 4.2.5
                 let mut c = Self::ipzero(a, b, d, e, fa, fb, fd, fe);
                 if !c.is_inside_interval(&a, &b) {
@@ -893,34 +880,37 @@ where T: OrdField,
                 };
                 // 4.2.6: (a, b, d) = (a̅ₙ, b̅ₙ, d̅ₙ)
                 let fc = (self.f)(c);
-                $bracket!(a b c d, fa fb fc fd, self, root);
+                bracket_copy!(a b c d, fa fb fc fd, self, root, $lt0, $gt0);
                 // 4.2.7 = 4.1.5: u = uₙ
-                let u = if fa.abs() < fb.abs() { a } else { b };
+                debug_assert!(fa.$lt0() && fb.$gt0());
+                let u = if $abs_lt!(fa, fb) { a } else { b };
                 // 4.2.8 = 4.1.6: c = c̅ₙ
                 let fu = (self.f)(u);
                 let mut c = u - ((fu / (fb - fa)) * (b - a)).twice();
                 // 4.2.9 = 4.1.7: c = ĉₙ
-                if (c - u).abs().twice() > b - a {
+                let dist = if c > u { c - u } else { u - c };
+                if dist.twice() > b - a {
                     c.assign_mid(&a, &b);
                 }
                 // 4.2.10 = 4.1.8: (a, b, d) = (âₙ, b̂ₙ, d̂ₙ)
                 let fc = (self.f)(c);
                 e = d; // save d̅ₙ and anticipate eₙ₊₁ = d̅ₙ
                 fe = fd;
-                $bracket!(a b c d, fa fb fc fd, self, root);
+                bracket_copy!(a b c d, fa fb fc fd, self, root, $lt0, $gt0);
                 // 4.2.11 = 4.1.9
                 // Nothing to do for the first case.
                 if (b - a).twice() >= dist_an_bn { // μ = 1/2
                     e = d;  fe = fd; // eₙ₊₁ = d̂ₙ
                     c.assign_mid(&a, &b); // reuse `c`
                     let fmid = (self.f)(c);
-                    $bracket!(a b c d, fa fb fmid fd, self, root);
+                    bracket_copy!(a b c d, fa fb fmid fd, self, root,
+                                  $lt0, $gt0);
                 }
             }
         }
         match check_sign("root1d::toms748", a, b, fa, fb)? {
-            SignChange::NegPos => { body!(bracket_neg_pos); }
-            SignChange::PosNeg => { body!(bracket_pos_neg); },
+            SignChange::NegPos => { body!(lt0, gt0, abs_lt_neg_pos); }
+            SignChange::PosNeg => { body!(gt0, lt0, abs_lt_pos_neg); },
             SignChange::Root1 => { *root = a;  return Ok((a,a)) }
             SignChange::Root2 => { *root = b;  return Ok((b,b)) }
         }
@@ -1006,8 +996,8 @@ pub trait OrdFieldMut: Bisectable
         /// Multiply in place `self` by 2.
         fn twice(&mut self);
 
-        /// Return `true` if |`self`| < |`other`|
-        fn lt_abs(&self, other: &Self) -> bool;
+        /// Perform the negation.
+        fn neg_assign(&mut self);
 
         /// Return `true` if `self` ∈ \]`a`, `b`\[.  If `c` is NaN or
         /// ±∞ (coming, say, from a division by 0), this function must
@@ -1050,24 +1040,27 @@ macro_rules! ok_mut { ($a: expr, $b: expr) => { () } }
 /// `bracket_neg_pos!(a b c d, fa fb fc fd, self, x)`: update `a`,
 /// `b`, and `d` (and the corresponding `fa`, `fb` and `fd`) according
 /// to the sign of `fc`.
-/// Assume f(a) < 0 < f(b).  The same invariant is true on exit.
-macro_rules! bracket_neg_pos_mut {
+/// Assume f(a).`$lt0()` and f(b).$gt0()`.  The same invariant is true
+/// on exit.
+macro_rules! bracket_mut {
     ($a: ident $b: ident $c: ident $d: ident,
      $fa: ident $fb: ident $fc: ident $fd: ident,
-     $self: ident, $x: ident) => {
+     $self: ident, $x: ident, $lt0: ident, $gt0: ident) => {
         bracket_sign!($a $b $c $d, $fa $fb $fc $fd, $self, $x,
-                      assign_mut, ok_mut, lt0, gt0)
+                      assign_mut, ok_mut, $lt0, $gt0)
     }
 }
 
-/// Same as `bracket_neg_pos` but assume f(a) > 0 > f(b).
-macro_rules! bracket_pos_neg_mut {
-    ($a: ident $b: ident $c: ident $d: ident,
-     $fa: ident $fb: ident $fc: ident $fd: ident,
-     $self: ident, $x: ident) => {
-        bracket_sign!($a $b $c $d, $fa $fb $fc $fd, $self, $x,
-                      assign_mut, ok_mut, gt0, lt0)
-    }
+macro_rules! abs_lt_neg_pos_mut {
+    ($x: ident, $y: ident, tmp = $t: ident) => {{
+        $t.assign($x);  $t.neg_assign();   $t < $y
+    }}
+}
+
+macro_rules! abs_lt_pos_neg_mut {
+    ($x: ident, $y: ident, tmp = $t: ident) => {{
+        $t.assign($y);  $t.neg_assign();   $x < $t
+    }}
 }
 
 impl<'a, T, F, Term> Toms748Mut<'a, T, F, Term>
@@ -1121,8 +1114,8 @@ where T: OrdFieldMut,
         }
         // a ≤ b, `a` and `b` finite by construction
         macro_rules! body {
-            ($bracket: ident) => {
-                body!(n=2, $bracket);
+            ($lt0: ident, $gt0: ident, $abs_lt: ident) => {
+                body!(n=2, $lt0, $gt0, $abs_lt);
                 for _ in 1 .. self.maxiter {
                     // 4.2.3: (a, b, d, e) = (aₙ, bₙ, dₙ, eₙ)
                     Self::ipzero(c, [t1, t2, t3, t4],
@@ -1131,14 +1124,14 @@ where T: OrdFieldMut,
                         Self::newton_quadratic::<1>(c, [t1, t2, t3, t4, t5],
                                                     a, b, d, fa, fb, fd);
                     };
-                    body!(step, $bracket);
+                    body!(step, $lt0, $gt0, $abs_lt);
                 }
                 if self.maxiter_err {
                     return Err(Error::MaxIter)
                 }
                 root.assign_mid(&a, &b);
             };
-            (n=2, $bracket: ident) => {
+            (n=2, $lt0: ident, $gt0: ident, $abs_lt: ident) => {
                 // `fa` and `fb` set by `check_sign_mut`.
                 if self.t.stop(&a, &b, &fa, &fb) {
                     root.assign_mid(a, b);
@@ -1154,22 +1147,22 @@ where T: OrdFieldMut,
                 }
                 // 4.2.2 = 4.1.2: (a, b, d) = (a₂, b₂, d₂)
                 (self.f)(fc, c);
-                $bracket!(a b c d, fa fb fc fd, self, root);
+                bracket_mut!(a b c d, fa fb fc fd, self, root, $lt0, $gt0);
                 // 4.2.3
                 Self::newton_quadratic::<1>(c, [t1, t2, t3, t4, t5],
                                             a, b, d, fa, fb, fd);
-                body!(step, $bracket)
+                body!(step, $lt0, $gt0, $abs_lt)
             };
             // Assume (a, b, c, d) = (aₙ, bₙ, cₙ, dₙ) and (fa, fb, fd) =
             // (f(aₙ), f(bₙ), f(dₙ)), take cₙ, and update the state.
-            (step, $bracket: ident) => {
+            (step, $lt0: ident, $gt0: ident, $abs_lt: ident) => {
                 dist_an_bn.assign(b); *dist_an_bn -= a; // b - a
                 // 4.2.4
                 (self.f)(fc, c);
                 e.assign(d); // ẽₙ  (eₙ no longer used)
                 fe.assign(fd); // f(ẽₙ)
                 // (a, b, d) = (ãₙ, b̃ₙ, d̃ₙ)
-                $bracket!(a b c d, fa fb fc fd, self, root);
+                bracket_mut!(a b c d, fa fb fc fd, self, root, $lt0, $gt0);
                 // 4.2.5
                 Self::ipzero(c, [t1, t2, t3, t4], a, b, d, e, fa, fb, fd, fe);
                 if !c.is_inside_interval(&a, &b) {
@@ -1178,9 +1171,10 @@ where T: OrdFieldMut,
                 };
                 // 4.2.6: (a, b, d) = (a̅ₙ, b̅ₙ, d̅ₙ)
                 (self.f)(fc, c);
-                $bracket!(a b c d, fa fb fc fd, self, root);
-                // 4.2.7 = 4.1.5
-                if fa.lt_abs(fb) { c.assign(a) } else { c.assign(b) }; // c = uₙ
+                bracket_mut!(a b c d, fa fb fc fd, self, root, $lt0, $gt0);
+                // 4.2.7 = 4.1.5: c = uₙ
+                debug_assert!(fa.$lt0() && fb.$gt0());
+                if $abs_lt!(fa, fb, tmp = t1) { c.assign(a) } else { c.assign(b) };
                 // 4.2.8 = 4.1.6
                 (self.f)(t1, c); // t1 = f(uₙ)
                 t1.twice();
@@ -1189,15 +1183,16 @@ where T: OrdFieldMut,
                 *c -= t1; // c = c̅ₙ = uₙ - 2 f(uₙ) * (b - a) / (fb - fa)
                 // 4.2.9 = 4.1.7: c = ĉₙ
                 t1.twice(); // t1 = 2(uₙ - c̅ₙ)
-                t2.assign(b);  *t2 -= a; // t2 = b - a
-                if t2.lt_abs(t1) {
+                if t1.lt0() { t1.neg_assign() }; // t1 = 2 |c̅ₙ - uₙ|
+                t2.assign(b);  *t2 -= a; // t2 = b - a > 0
+                if t1 > t2 {
                     c.assign_mid(&a, &b);
                 }
                 // 4.2.10 = 4.1.8: (a, b, d) = (âₙ, b̂ₙ, d̂ₙ)
                 (self.f)(fc, c);
                 e.assign(d); // save d̅ₙ and anticipate eₙ₊₁ = d̅ₙ
                 fe.assign(fd);
-                $bracket!(a b c d, fa fb fc fd, self, root);
+                bracket_mut!(a b c d, fa fb fc fd, self, root, $lt0, $gt0);
                 // 4.2.11 = 4.1.9
                 // Nothing to do for the first case.
                 t1.assign(b);  *t1 -= a;  t1.twice(); // t1 = 2(b - a)
@@ -1205,14 +1200,14 @@ where T: OrdFieldMut,
                     e.assign(d);  fe.assign(fd); // eₙ₊₁ = d̂ₙ
                     c.assign_mid(&a, &b); // reuse `c`
                     (self.f)(fc, c);
-                    $bracket!(a b c d, fa fb fc fd, self, root);
+                    bracket_mut!(a b c d, fa fb fc fd, self, root, $lt0, $gt0);
                 }
             }
         }
         match check_sign_mut("root1d::toms748_mut", a, b,
                              &mut self.f, fa, fb)? {
-            SignChange::NegPos => { body!(bracket_neg_pos_mut); }
-            SignChange::PosNeg => { body!(bracket_pos_neg_mut); },
+            SignChange::NegPos => { body!(lt0, gt0, abs_lt_neg_pos_mut); }
+            SignChange::PosNeg => { body!(gt0, lt0, abs_lt_pos_neg_mut); },
             SignChange::Root1 => { root.assign(a); return Ok(()) },
             SignChange::Root2 => { root.assign(b); return Ok(())},
         }
@@ -1371,8 +1366,8 @@ mod rug {
                 fn twice(&mut self) { *self *= 2 }
 
                 #[inline]
-                fn lt_abs(&self, x: &Self) -> bool {
-                    self.cmp_abs(x) == $less
+                fn neg_assign(&mut self) {
+                    <Self as rug::ops::NegAssign>::neg_assign(self)
                 }
             }
         }
