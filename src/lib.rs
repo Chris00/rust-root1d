@@ -836,21 +836,6 @@ where T: OrdField,
         // at these points.
         macro_rules! body {
             ($lt0: ident, $gt0: ident, $abs_lt: ident) => {
-                body!(n=2, $lt0, $gt0, $abs_lt);
-                for _ in 1 .. self.maxiter {
-                    // 4.2.3: (a, b, d, e) = (aₙ, bₙ, dₙ, eₙ)
-                    let mut c = Self::ipzero(a, b, d, e, fa, fb, fd, fe);
-                    if !c.is_inside_interval(&a, &b) {
-                        c = Self::newton_quadratic::<1>(a, b, d, fa, fb, fd);
-                    };
-                    body!(step, c, $lt0, $gt0, $abs_lt);
-                }
-                if self.maxiter_err {
-                    return Err(Error::MaxIter)
-                }
-                root.assign_mid(&a, &b);
-            };
-            (n=2, $lt0: ident, $gt0: ident, $abs_lt: ident) => {
                 // 4.2.1 = 4.1.1: (a, b) = (a₁, b₁)
                 let mut c1 = a - (fa / (fb - fa)) * (b - a);
                 if !c1.is_inside_interval(&a, &b) {
@@ -859,9 +844,18 @@ where T: OrdField,
                 // 4.2.2 = 4.1.2: (a, b, d) = (a₂, b₂, d₂)
                 let fc1 = (self.f)(c1);
                 bracket_copy!(a b c1 d, fa fb fc1 fd, self, root, $lt0, $gt0);
-                // 4.2.3
+                // 4.2.3: n = 2
                 let c2 = Self::newton_quadratic::<1>(a, b, d, fa, fb, fd);
-                body!(step, c2, $lt0, $gt0, $abs_lt)
+                body!(step, c2, $lt0, $gt0, $abs_lt);
+                // n = 3..
+                for _ in 2 .. self.maxiter {
+                    // 4.2.3: (a, b, d, e) = (aₙ, bₙ, dₙ, eₙ)
+                    let mut c = Self::ipzero(a, b, d, e, fa, fb, fd, fe);
+                    if !c.is_inside_interval(&a, &b) {
+                        c = Self::newton_quadratic::<1>(a, b, d, fa, fb, fd);
+                    };
+                    body!(step, c, $lt0, $gt0, $abs_lt);
+                }
             };
             // Assume (a, b, d) = (aₙ, bₙ, dₙ) and (fa, fb, fd) =
             // (f(aₙ), f(bₙ), f(dₙ)), take cₙ, and update the state.
@@ -914,6 +908,10 @@ where T: OrdField,
             SignChange::Root1 => { *root = a;  return Ok((a,a)) }
             SignChange::Root2 => { *root = b;  return Ok((b,b)) }
         }
+        if self.maxiter_err {
+            return Err(Error::MaxIter)
+        }
+        root.assign_mid(&a, &b);
         Ok((a,b))
     }
 
@@ -1115,23 +1113,6 @@ where T: OrdFieldMut,
         // a ≤ b, `a` and `b` finite by construction
         macro_rules! body {
             ($lt0: ident, $gt0: ident, $abs_lt: ident) => {
-                body!(n=2, $lt0, $gt0, $abs_lt);
-                for _ in 1 .. self.maxiter {
-                    // 4.2.3: (a, b, d, e) = (aₙ, bₙ, dₙ, eₙ)
-                    Self::ipzero(c, [t1, t2, t3, t4],
-                                 a, b, d, e, fa, fb, fd, fe);
-                    if !c.is_inside_interval(&a, &b) {
-                        Self::newton_quadratic::<1>(c, [t1, t2, t3, t4, t5],
-                                                    a, b, d, fa, fb, fd);
-                    };
-                    body!(step, $lt0, $gt0, $abs_lt);
-                }
-                if self.maxiter_err {
-                    return Err(Error::MaxIter)
-                }
-                root.assign_mid(&a, &b);
-            };
-            (n=2, $lt0: ident, $gt0: ident, $abs_lt: ident) => {
                 // `fa` and `fb` set by `check_sign_mut`.
                 if self.t.stop(&a, &b, &fa, &fb) {
                     root.assign_mid(a, b);
@@ -1148,10 +1129,21 @@ where T: OrdFieldMut,
                 // 4.2.2 = 4.1.2: (a, b, d) = (a₂, b₂, d₂)
                 (self.f)(fc, c);
                 bracket_mut!(a b c d, fa fb fc fd, self, root, $lt0, $gt0);
-                // 4.2.3
+                // 4.2.3: n = 2
                 Self::newton_quadratic::<1>(c, [t1, t2, t3, t4, t5],
                                             a, b, d, fa, fb, fd);
-                body!(step, $lt0, $gt0, $abs_lt)
+                body!(step, $lt0, $gt0, $abs_lt);
+                // n = 3..
+                for _ in 2 .. self.maxiter {
+                    // 4.2.3: (a, b, d, e) = (aₙ, bₙ, dₙ, eₙ)
+                    Self::ipzero(c, [t1, t2, t3, t4],
+                                 a, b, d, e, fa, fb, fd, fe);
+                    if !c.is_inside_interval(&a, &b) {
+                        Self::newton_quadratic::<1>(c, [t1, t2, t3, t4, t5],
+                                                    a, b, d, fa, fb, fd);
+                    };
+                    body!(step, $lt0, $gt0, $abs_lt);
+                }
             };
             // Assume (a, b, c, d) = (aₙ, bₙ, cₙ, dₙ) and (fa, fb, fd) =
             // (f(aₙ), f(bₙ), f(dₙ)), take cₙ, and update the state.
@@ -1211,6 +1203,10 @@ where T: OrdFieldMut,
             SignChange::Root1 => { root.assign(a); return Ok(()) },
             SignChange::Root2 => { root.assign(b); return Ok(())},
         }
+        if self.maxiter_err {
+            return Err(Error::MaxIter)
+        }
+        root.assign_mid(&a, &b);
         Ok(())
     }
 
