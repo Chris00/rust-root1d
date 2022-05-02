@@ -680,14 +680,6 @@ pub trait OrdField: Bisectable + Copy
 
         /// Return twice the value of `self`.
         fn twice(self) -> Self;
-
-        /// Return `true` if `self` ∈ \]`a`, `b`\[.  If `c` is NaN or
-        /// ±∞ (coming, say, from a division by 0), this function must
-        /// return `false`.  It may be assumed that `a <= b`.
-        #[inline]
-        fn is_inside_interval(&self, a: &Self, b: &Self) -> bool {
-            a < self && self < b
-        }
     }
 
 macro_rules! impl_ordfield_fXX {
@@ -838,7 +830,7 @@ where T: OrdField,
             ($lt0: ident, $gt0: ident, $abs_lt: ident) => {
                 // 4.2.1 = 4.1.1: (a, b) = (a₁, b₁)
                 let mut c1 = a - (fa / (fb - fa)) * (b - a);
-                if !c1.is_inside_interval(&a, &b) {
+                if !Self::is_inside_interval(c1, a, b) {
                     c1.assign_mid(&a, &b);
                 }
                 // 4.2.2 = 4.1.2: (a, b, d) = (a₂, b₂, d₂)
@@ -851,7 +843,7 @@ where T: OrdField,
                 for _ in 2 .. self.maxiter {
                     // 4.2.3: (a, b, d, e) = (aₙ, bₙ, dₙ, eₙ)
                     let mut c = Self::ipzero(a, b, d, e, fa, fb, fd, fe);
-                    if !c.is_inside_interval(&a, &b) {
+                    if !Self::is_inside_interval(c, a, b) {
                         c = Self::newton_quadratic::<1>(a, b, d, fa, fb, fd);
                     };
                     body!(step, c, $lt0, $gt0, $abs_lt);
@@ -869,7 +861,7 @@ where T: OrdField,
                 bracket_copy!(a b $c d, fa fb fc fd, self, root, $lt0, $gt0);
                 // 4.2.5
                 let mut c = Self::ipzero(a, b, d, e, fa, fb, fd, fe);
-                if !c.is_inside_interval(&a, &b) {
+                if !Self::is_inside_interval(c, a, b) {
                     c = Self::newton_quadratic::<2>(a, b, d, fa, fb, fd);
                 };
                 // 4.2.6: (a, b, d) = (a̅ₙ, b̅ₙ, d̅ₙ)
@@ -931,17 +923,25 @@ where T: OrdField,
             p = fa + fab * (r - a) + fabd * (r - a) * (r - b);
         }
         r = r - p / (den + fabd * r.twice());
-        if r.is_inside_interval(&a, &b) {
+        if Self::is_inside_interval(r, a, b) {
             r
         } else { // Maybe fabd = 0, or d ∈ {a,b},...
             a - fa / fab
         }
     }
 
+    /// Return `true` if `x` ∈ \]`a`, `b`\[.  If `x` is NaN or ±∞
+    /// (coming, say, from a division by 0), this function returns
+    /// `false`.  Assume that `a` ≤ `b`.
+    #[inline]
+    fn is_inside_interval(x: T, a: T, b: T) -> bool {
+        a < x && x < b
+    }
+
     /// Compute IP(0), the value at 0 of the inverse cubic interporation.
     #[inline]
-    fn ipzero(a: T, b: T, c: T, d: T,
-              fa: T, fb: T, fc: T, fd: T) -> T {
+    #[must_use]
+    fn ipzero(a: T, b: T, c: T, d: T, fa: T, fb: T, fc: T, fd: T) -> T {
         // See “J. Stoer and R. Bulirsch, Introduction to numerical
         // analysis, 3rd ed. New York: Springer, 2002”, p. 43.
         let a_b = (a - b) / (fb - fa);
@@ -996,14 +996,6 @@ pub trait OrdFieldMut: Bisectable
 
         /// Perform the negation.
         fn neg_assign(&mut self);
-
-        /// Return `true` if `self` ∈ \]`a`, `b`\[.  If `c` is NaN or
-        /// ±∞ (coming, say, from a division by 0), this function must
-        /// return `false`.  It may be assumed that `a <= b`.
-        #[inline]
-        fn is_inside_interval(&self, a: &Self, b: &Self) -> bool {
-            a < self && self < b
-        }
 
         /// Return `true` if `self` and `other` have the same sign and
         /// are both non-zero.
@@ -1062,7 +1054,7 @@ macro_rules! abs_lt_pos_neg_mut {
 }
 
 impl<'a, T, F, Term> Toms748Mut<'a, T, F, Term>
-where T: OrdFieldMut,
+where T: OrdFieldMut + 'a,
       F: FnMut(&mut T, &T),
       Term: Terminate<T> {
 
@@ -1123,7 +1115,7 @@ where T: OrdFieldMut,
                 t1.assign(b);  *t1 -= a;  *t1 *= fa;
                 t2.assign(fb);  *t2 -= fa;  *t1 /= t2;
                 *c -= t1; // c = a - (fa / (fb - fa)) * (b - a);
-                if !c.is_inside_interval(&a, &b) {
+                if !Self::is_inside_interval(&c, &a, &b) {
                     c.assign_mid(&a, &b);
                 }
                 // 4.2.2 = 4.1.2: (a, b, d) = (a₂, b₂, d₂)
@@ -1138,7 +1130,7 @@ where T: OrdFieldMut,
                     // 4.2.3: (a, b, d, e) = (aₙ, bₙ, dₙ, eₙ)
                     Self::ipzero(c, [t1, t2, t3, t4],
                                  a, b, d, e, fa, fb, fd, fe);
-                    if !c.is_inside_interval(&a, &b) {
+                    if !Self::is_inside_interval(&c, &a, &b) {
                         Self::newton_quadratic::<1>(c, [t1, t2, t3, t4, t5],
                                                     a, b, d, fa, fb, fd);
                     };
@@ -1157,7 +1149,7 @@ where T: OrdFieldMut,
                 bracket_mut!(a b c d, fa fb fc fd, self, root, $lt0, $gt0);
                 // 4.2.5
                 Self::ipzero(c, [t1, t2, t3, t4], a, b, d, e, fa, fb, fd, fe);
-                if !c.is_inside_interval(&a, &b) {
+                if !Self::is_inside_interval(c, a, b) {
                     Self::newton_quadratic::<2>(c, [t1, t2, t3, t4, t5],
                                                 a, b, d, fa, fb, fd);
                 };
@@ -1210,13 +1202,20 @@ where T: OrdFieldMut,
         Ok(())
     }
 
+    /// Return `true` if `x` ∈ \]`a`, `b`\[.  If `x` is NaN or ±∞
+    /// (coming, say, from a division by 0), this function returns
+    /// `false`.  Assume that `a` ≤ `b`.
+    #[inline]
+    fn is_inside_interval(x: &T, a: &T, b: &T) -> bool {
+        a < x && x < b
+    }
+
     /// Evaluate with `K`+1 Newton iterations the root of the quadratic
     /// interpolation polynomial on (x, f(x)) with x ∈ {a, b, d}.
     #[inline]
-    fn newton_quadratic<'b, const K: u8>(
-        r: &'b mut T, [fab, fabd, t1, den, p]: [&'b mut T; 5],
-        a: &'b T, b: &'b T, d: &'b T,
-        fa: &'b T, fb: &'b T, fd: &'b T) {
+    fn newton_quadratic<const K: u8>(
+        r: &mut T, [fab, fabd, t1, den, p]: [&mut T; 5],
+        a: &T, b: &T, d: &T,  fa: &T, fb: &T, fd: &T) {
         fab.assign(fa);  *fab -= fb; // fa - fb
         t1.assign(a);  *t1 -= b; // a - b
         *fab /= t1; // fab = (fa - fb) / (a - b)
@@ -1251,7 +1250,7 @@ where T: OrdFieldMut,
             *p += fa; // fa + fab * (r - a) + fabd * (r - a) * (r - b)
         }
         update!(r);
-        if !r.is_inside_interval(&a, &b) {
+        if !Self::is_inside_interval(r, a, b) {
             r.assign(a);
             t1.assign(fa);  *t1 /= fab;
             *r -= t1; // a - fa / fab
@@ -1260,9 +1259,9 @@ where T: OrdFieldMut,
 
     /// Compute IP(0), the value at 0 of the inverse cubic interporation.
     #[inline]
-    fn ipzero<'b>(r: &'b mut T, [t1, t2, t3, t4]: [&'b mut T; 4],
-                  a: &'b T, b: &'b T, c: &'b T, d: &'b T,
-                  fa: &'b T, fb: &'b T, fc: &'b T, fd: &'b T) {
+    fn ipzero(r: &mut T, [t1, t2, t3, t4]: [&mut T; 4],
+              a: &T, b: &T, c: &T, d: &T,
+              fa: &T, fb: &T, fc: &T, fd: &T) {
         // See the implementation of `ipzero` for Copy types.
         r.assign(a);  *r -= b;
         t1.assign(fb);  *t1 -= fa;  *r /= t1; // r = (a - b) / (fb - fa)
