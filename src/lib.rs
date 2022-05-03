@@ -1498,6 +1498,27 @@ mod tests {
     }
 
     #[test]
+    fn test_ipzero() {
+        // y³ + 3 = x
+        let r = root1d::Toms748::<f64, fn(f64) -> f64, root1d::Tol<f64>>
+            ::ipzero(-5., 2., 4., 11.,
+                     -2., -1., 1., 2.);
+        assert_eq!(r, 3.);
+    }
+
+    #[test]
+    fn test_newton_quadratic() {
+        let r = root1d::Toms748::<f64, fn(f64) -> f64, root1d::Tol<f64>>
+            ::newton_quadratic::<0>(0.,  2., 1.,
+                                    -1., 3., 0.);
+        assert_eq!(r, 1.25);
+        let r = root1d::Toms748::<f64, fn(f64) -> f64, root1d::Tol<f64>>
+            ::newton_quadratic::<1>(0.,  2., 1.,
+                                    -1., 3., 0.);
+        assert_eq!(r, 41. / 40.);
+    }
+
+    #[test]
     fn toms748() -> R<f64> {
         for i in 2 .. 20 {
             let c = i as f64;
