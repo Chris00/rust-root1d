@@ -680,6 +680,9 @@ pub trait OrdField: Bisectable + Copy
 
         /// Return twice the value of `self`.
         fn twice(self) -> Self;
+
+        /// Return the value of `self` divided by 64.
+        fn div64(self) -> Self;
     }
 
 macro_rules! impl_ordfield_fXX {
@@ -689,6 +692,8 @@ macro_rules! impl_ordfield_fXX {
             fn is_zero(self) -> bool { self == 0. }
             #[inline]
             fn twice(self) -> Self { 2. * self }
+            #[inline]
+            fn div64(self) -> Self { 0.015625 * self }
         }
     }
 }
@@ -869,12 +874,28 @@ where T: OrdField,
                 bracket_copy!(a b c d, fa fb fc fd, self, root, $lt0, $gt0);
                 // 4.2.7 = 4.1.5: u = uₙ
                 debug_assert!(fa.$lt0() && fb.$gt0());
-                let (u, fu) = if $abs_lt!(fa, fb) { (a, fa) } else { (b, fb) };
-                // 4.2.8 = 4.1.6: c = c̅ₙ
-                let mut c = u - (fu.twice() / (fb - fa)) * (b - a);
+                let len = b - a;
+                let mut c;
+                let mut dist;
+                if $abs_lt!(fa, fb) {
+                    // 4.2.8 = 4.1.6: c = c̅ₙ with uₙ = a
+                    dist = - fa.twice() / (fb - fa) * len;
+                    c = a + dist;
+                    if c <= a { // `dist` may be very "absorbed" by `a`
+                        dist = len.div64();
+                        c = a + dist
+                    }
+                } else {
+                    // 4.2.8 = 4.1.6: c = c̅ₙ with uₙ = b
+                    dist = (fb.twice() / (fb - fa)) * len;
+                    c = b - dist;
+                    if c >= b {
+                        dist = len.div64();
+                        c = b - dist
+                    }
+                };
                 // 4.2.9 = 4.1.7: c = ĉₙ
-                let dist = if c > u { c - u } else { u - c };
-                if dist.twice() > b - a {
+                if dist.twice() > len {
                     c.assign_mid(&a, &b);
                 }
                 // 4.2.10 = 4.1.8: (a, b, d) = (âₙ, b̂ₙ, d̂ₙ)
@@ -908,6 +929,7 @@ where T: OrdField,
 
     /// Evaluate with `K`+1 Newton iterations the root of the quadratic
     /// interpolation polynomial on (x, f(x)) with x ∈ {a, b, d}.
+    /// Will only be used with `a <= b`.
     #[inline]
     #[must_use]
     fn newton_quadratic<const K: u8>(a: T, b: T, d: T,
@@ -925,7 +947,10 @@ where T: OrdField,
         if Self::is_inside_interval(r, a, b) {
             r
         } else { // Maybe fabd = 0, or d ∈ {a,b},...
-            a - fa / fab
+            let r = a - fa / fab;
+            if r <= a { a + (b - a).div64() }
+            else if r >= b { b - (b - a).div64() }
+            else { r }
         }
     }
 
