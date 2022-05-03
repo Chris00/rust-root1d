@@ -869,10 +869,9 @@ where T: OrdField,
                 bracket_copy!(a b c d, fa fb fc fd, self, root, $lt0, $gt0);
                 // 4.2.7 = 4.1.5: u = uₙ
                 debug_assert!(fa.$lt0() && fb.$gt0());
-                let u = if $abs_lt!(fa, fb) { a } else { b };
+                let (u, fu) = if $abs_lt!(fa, fb) { (a, fa) } else { (b, fb) };
                 // 4.2.8 = 4.1.6: c = c̅ₙ
-                let fu = (self.f)(u);
-                let mut c = u - ((fu / (fb - fa)) * (b - a)).twice();
+                let mut c = u - (fu.twice() / (fb - fa)) * (b - a);
                 // 4.2.9 = 4.1.7: c = ĉₙ
                 let dist = if c > u { c - u } else { u - c };
                 if dist.twice() > b - a {
@@ -1156,11 +1155,14 @@ where T: OrdFieldMut + 'a,
                 // 4.2.6: (a, b, d) = (a̅ₙ, b̅ₙ, d̅ₙ)
                 (self.f)(fc, c);
                 bracket_mut!(a b c d, fa fb fc fd, self, root, $lt0, $gt0);
-                // 4.2.7 = 4.1.5: c = uₙ
+                // 4.2.7 = 4.1.5: c = uₙ, t1 = f(uₙ)
                 debug_assert!(fa.$lt0() && fb.$gt0());
-                if $abs_lt!(fa, fb, tmp = t1) { c.assign(a) } else { c.assign(b) };
+                if $abs_lt!(fa, fb, tmp = t1) {
+                    c.assign(a);  t1.assign(fa);
+                } else {
+                    c.assign(b);  t1.assign(fb);
+                };
                 // 4.2.8 = 4.1.6
-                (self.f)(t1, c); // t1 = f(uₙ)
                 t1.twice();
                 t2.assign(b);  *t2 -= a;  *t1 *= t2;
                 t2.assign(fb);  *t2 -= fa;  *t1 /= t2; // t1 = uₙ - c̅ₙ
