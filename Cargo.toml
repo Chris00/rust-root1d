@@ -37,6 +37,7 @@ harness = false
 [[bench]]
 name = "pbm748_neval"
 harness = false
+required-features = ["rug"]
 
 [[example]]
 name = "speed"

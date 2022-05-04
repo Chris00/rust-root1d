@@ -53,7 +53,7 @@ fn f12<const N:i32>(x: f64) -> f64 {
 }
 
 fn f13(x: f64) -> f64 {
-    if x == 0. { 0. }  else { x * (-1. / (x * x)).exp() }
+    if x == 0. { 0. }  else { x / (1. / (x * x)).exp() }
 }
 
 fn f14<const N:i32>(x: f64) -> f64 {

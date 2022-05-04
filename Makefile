@@ -28,6 +28,9 @@ bench_mut:
 criterion:
 	cargo criterion --plotting-backend plotters
 
+neval:
+	cargo bench neval --all-features
+
 flamegraph:
 	cargo build --profile release --example speed
 	flamegraph -o $(TMP)/speed.svg -- target/release/examples/speed
@@ -37,4 +40,4 @@ clean:
 	cargo clean
 	-dune clean
 
-.PHONY: build doc examples bench bench_mut criterion flamegraph clean
+.PHONY: build doc examples bench bench_mut criterion neval flamegraph clean
