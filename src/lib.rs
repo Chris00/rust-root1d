@@ -867,7 +867,7 @@ where T: OrdField,
                 // 4.2.5
                 let mut c = Self::ipzero(a, b, d, e, fa, fb, fd, fe);
                 if !Self::is_inside_interval(c, a, b) {
-                    c = Self::newton_quadratic::<2>(a, b, d, fa, fb, fd);
+                    c = Self::newton_quadratic::<3>(a, b, d, fa, fb, fd);
                 };
                 // 4.2.6: (a, b, d) = (a̅ₙ, b̅ₙ, d̅ₙ)
                 let fc = (self.f)(c);
@@ -1177,7 +1177,7 @@ where T: OrdFieldMut + 'a,
                 // 4.2.5
                 Self::ipzero(c, [t1, t2, t3, t4], a, b, d, e, fa, fb, fd, fe);
                 if !Self::is_inside_interval(c, a, b) {
-                    Self::newton_quadratic::<2>(c, [t1, t2, t3, t4, t5],
+                    Self::newton_quadratic::<3>(c, [t1, t2, t3, t4, t5],
                                                 a, b, d, fa, fb, fd);
                 };
                 // 4.2.6: (a, b, d) = (a̅ₙ, b̅ₙ, d̅ₙ)
