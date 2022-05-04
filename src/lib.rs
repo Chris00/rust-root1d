@@ -1018,6 +1018,9 @@ pub trait OrdFieldMut: Bisectable
         /// Multiply in place `self` by 2.
         fn twice(&mut self);
 
+        /// Divide in place `self` by 64.
+        fn div64(&mut self);
+
         /// Perform the negation.
         fn neg_assign(&mut self);
 
@@ -1182,21 +1185,29 @@ where T: OrdFieldMut + 'a,
                 bracket_mut!(a b c d, fa fb fc fd, self, root, $lt0, $gt0);
                 // 4.2.7 = 4.1.5: c = uₙ, t1 = f(uₙ)
                 debug_assert!(fa.$lt0() && fb.$gt0());
-                if $abs_lt!(fa, fb, tmp = t1) {
-                    c.assign(a);  t1.assign(fa);
-                } else {
-                    c.assign(b);  t1.assign(fb);
-                };
                 // 4.2.8 = 4.1.6
-                t1.twice();
-                t2.assign(b);  *t2 -= a;  *t1 *= t2;
-                t2.assign(fb);  *t2 -= fa;  *t1 /= t2; // t1 = uₙ - c̅ₙ
-                *c -= t1; // c = c̅ₙ = uₙ - 2 f(uₙ) * (b - a) / (fb - fa)
+                t2.assign(b);  *t2 -= a;  // t2 = b - a
+                if $abs_lt!(fa, fb, tmp = t1) {
+                    t1.assign(fa);  t1.twice();  *t1 *= t2;
+                    t3.assign(fa);  *t3 -= fb;  *t1 /= t3; // t1 = c̅ₙ - uₙ ≥ 0
+                    // c = c̅ₙ = uₙ - 2 f(uₙ) * (b - a) / (fb - fa)
+                    c.assign(a);  *c += t1;
+                    if c <= a { // `t1` absorbed by `a`
+                        t1.assign(t2);  t1.div64(); // t1 = |uₙ - c̅ₙ|
+                        c.assign(a);  *c += t1;
+                    }
+                } else {
+                    t1.assign(fb);  t1.twice();  *t1 *= t2;
+                    t3.assign(fb);  *t3 -= fa;  *t1 /= t3; // t1 = uₙ - c̅ₙ ≥ 0
+                    c.assign(b);  *c -= t1;
+                    if c >= b {
+                        t1.assign(t2);  t1.div64();
+                        c.assign(b);  *c -= t1;
+                    }
+                };
                 // 4.2.9 = 4.1.7: c = ĉₙ
-                t1.twice(); // t1 = 2(uₙ - c̅ₙ)
-                if t1.lt0() { t1.neg_assign() }; // t1 = 2 |c̅ₙ - uₙ|
-                t2.assign(b);  *t2 -= a; // t2 = b - a > 0
-                if t1 > t2 {
+                t1.twice(); // t1 = 2|uₙ - c̅ₙ|
+                if t1 > t2 { // Recall t2 = b - a > 0
                     c.assign_mid(&a, &b);
                 }
                 // 4.2.10 = 4.1.8: (a, b, d) = (âₙ, b̂ₙ, d̂ₙ)
@@ -1243,8 +1254,8 @@ where T: OrdFieldMut + 'a,
     fn newton_quadratic<const K: u8>(
         r: &mut T, [fab, fabd, t1, den, p]: [&mut T; 5],
         a: &T, b: &T, d: &T,  fa: &T, fb: &T, fd: &T) {
-        fab.assign(fa);  *fab -= fb; // fa - fb
-        t1.assign(a);  *t1 -= b; // a - b
+        fab.assign(fb);  *fab -= fa; // fb - fa
+        t1.assign(b);  *t1 -= a; // b - a
         *fab /= t1; // fab = (fa - fb) / (a - b)
         fabd.assign(fb);  *fabd -= fd;
         t1.assign(b);  *t1 -= d;
@@ -1281,6 +1292,11 @@ where T: OrdFieldMut + 'a,
             r.assign(a);
             t1.assign(fa);  *t1 /= fab;
             *r -= t1; // a - fa / fab
+            if *r <= *a {
+                r.assign(b);  *r -= a;  r.div64();  *r += a; // a + (b-a)/64
+            } else if *r >= *b {
+                r.assign(a);  *r -= b;  r.div64();  *r += b;
+            }
         }
     }
 
@@ -1336,7 +1352,7 @@ mod rug {
     macro_rules! impl_rug {
         ($t: ty, $new_t: ident, $rtol: expr, $atol: expr,
          $is_finite: ident, $assign_mid: item, $is_zero: ident,
-         $less: expr) => {
+         $div64: ident) => {
             impl Default for TolRug<$t> {
                 fn default() -> Self {
                     TolRug { rtol: $rtol,
@@ -1388,6 +1404,9 @@ mod rug {
                 fn twice(&mut self) { *self *= 2 }
 
                 #[inline]
+                fn div64(&mut self) { $div64!(self) }
+
+                #[inline]
                 fn neg_assign(&mut self) {
                     <Self as rug::ops::NegAssign>::neg_assign(self)
                 }
@@ -1398,6 +1417,7 @@ mod rug {
     macro_rules! float_new { () => { Float::new(53) } }
     macro_rules! float_is_finite { ($s: expr) => { Float::is_finite($s) } }
     macro_rules! float_is_zero { ($s: expr) => { Float::is_zero($s) } }
+    macro_rules! float_div64 { ($x: ident) => { *$x *= 0.015625 } }
     impl_rug!(Float, float_new,
               Float::with_val(53, 1e-16),
               Float::with_val(53, 1e-12),
@@ -1408,7 +1428,7 @@ mod rug {
                   *self /= 2i8;
               },
               float_is_zero,
-              Some(Ordering::Less));
+              float_div64);
 
     impl<U> From<Tol<U>> for TolRug<Float>
     where Float: AssignRound<U, Round = Round, Ordering = Ordering> {
@@ -1444,6 +1464,7 @@ mod rug {
     macro_rules! rational_is_zero { ($s: ident) => {
         $s.cmp0() == Ordering::Equal
     } }
+    macro_rules! rational_div64 { ($x: ident) => { *$x /= 64 } }
     impl_rug!(Rational, rational_new,
               (1, 1000_0000_0000_0000u64).into(),
               (1, 1000_0000_0000_0000u64).into(),
@@ -1454,7 +1475,7 @@ mod rug {
                   *self /= 2u8;
               },
               rational_is_zero,
-              Ordering::Less);
+              rational_div64);
 
     impl<U> From<Tol<U>> for TolRug<Rational>
     where Rational: rug::Assign<U> {
