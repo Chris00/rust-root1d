@@ -9,6 +9,14 @@
 //!
 //! # Example
 //!
+//! All root finding procedures have the same structure.  For example
+//! algorithm Toms 748 starts with a function [`toms748`] to specify
+//! the function `f` and the interval \[`a`, `b`\] on which `f`
+//! changes sign.  It returns a structure [`Toms748`] which provides
+//! methods to specify various parameters (such as
+//! [`rtol`][Toms748::rtol]) and functions to compute a root (such as
+//! [`root`][Toms748::root] and [`root_mut`][Toms748::root_mut]).
+//!
 //! ```
 //! use root1d::toms748;
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -29,8 +37,8 @@
 //! routine (for example one based on tolerances, either
 //! [`Tol<t>`][Tol] or a structure implementing [`SetTolerances`]) and
 //! implement [`Terminate`] and [`Default`] for it.  To use
-//! [`toms748`], you must also implement the trait [`OrdField`] or
-//! [`OrdFieldMut`].
+//! [`toms748`] (resp. [`toms748_mut`]), you must also implement the
+//! trait [`OrdField`] (resp. [`OrdFieldMut`]).
 
 use std::{fmt::{self, Debug, Display, Formatter},
           mem::swap,
@@ -164,9 +172,11 @@ pub trait Bisectable: PartialOrd + Clone + Debug {
     type DefaultTerminate: Default + Terminate<Self>;
 
     /// Return `true` if `self` is `< 0` (thus not a NaN).
+    /// This function must be compatible with [`PartialOrd`].
     fn lt0(&self) -> bool;
 
     /// Return `true` if `self` is `> 0` (thus not a NaN).
+    /// This function must be compatible with [`PartialOrd`].
     fn gt0(&self) -> bool;
 
     /// Returns `true` iff `self` is finite.
@@ -328,9 +338,16 @@ macro_rules! new_root_finding_method {
 // Bisection for copy types
 
 new_root_finding_method!(
-    /// Find a root of the function `f` on the interval \[`a`, `b`\] where
-    /// `f(a)` and `f(b)` have opposite signs using the bisection
-    /// algorithm.
+    /// Find a root of the function `f` on the interval \[`a`, `b`\]
+    /// with finite bounds assuming `f(a)` and `f(b)` have opposite
+    /// signs and `f` is continuous using the bisection algorithm.
+    ///
+    /// Trying to compute the root when `f(a)` and `f(b)` do *not*
+    /// have opposite signs will [`panic!`].  If the function is not
+    /// continuous, root-finding methods will still compute a small
+    /// interval at the boundary of which `f` changes sign and return
+    /// a point in it; [`Bisect::bracket`] and [`Bisect::root_mut`]
+    /// return the small interval.
     ///
     /// The default stopping criterion for [`f64`] (resp. [`f32`]) is
     /// given by [`Tol`] with `rtol: 4. * f64::EPSILON`, and
@@ -703,8 +720,18 @@ impl_ordfield_fXX!(f64);
 
 new_root_finding_method!(
     /// Find a root of the function `f` on the interval \[`a`, `b`\],
-    /// where `f(a)` and `f(b)` have opposite signs using Algorithm 748 by
-    /// Alefeld, Potro and Shi.
+    /// with finite bounds assuming `f(a)` and `f(b)` have opposite
+    /// signs and `f` is continuous using Algorithm 748 by Alefeld,
+    /// Potro and Shi.
+    ///
+    /// Trying to compute the root when `f(a)` and `f(b)` do *not*
+    /// have opposite signs will [`panic!`].  If the function is not
+    /// continuous, root-finding methods will still compute a small
+    /// interval at the boundary of which `f` changes sign and return
+    /// a point in it; [`Toms748::bracket`] and [`Toms748::root_mut`]
+    /// return the small interval.  This algorithm works best when the
+    /// function is of 4 times continuously differentiable on
+    /// \[`a`, `b`\] and the root is simple.
     ///
     /// The default stopping criterion for [`f64`] (resp. [`f32`]) is
     /// given by [`Tol`] with `rtol: 4. * f64::EPSILON`, and
@@ -735,7 +762,8 @@ new_root_finding_method!(
     ///
     /// G. E. Alefeld, F. A. Potra, and Y. Shi, “Algorithm 748:
     /// enclosing zeros of continuous functions,” ACM Trans. Math. Softw.,
-    /// vol. 21, no. 3, pp. 327–344, Sep. 1995, doi: 10.1145/210089.210111.
+    /// vol. 21, no. 3, pp. 327–344, Sep. 1995, doi:
+    /// [10.1145/210089.210111](https://dx.doi.org/10.1145/210089.210111).
     toms748,
     /// [`toms748`] algorithm (for [`Copy`] types).
     Toms748<...>, );
@@ -807,6 +835,12 @@ where T: OrdField,
     /// produces a NaN value.  When [`maxiter_err`][Toms748::maxiter_err]
     /// is turned on, the error [`Error::MaxIter`] is returned if
     /// the maximum number of iterations is reached.
+    ///
+    /// The advantage of Algorithm 748 compared to other methods of
+    /// root-finding (such as the Bisection or Brent's method) is that
+    /// it generally requires a lot less evaluations of the function
+    /// to achieve a desired precision.  This is particularly
+    /// interesting if the function is costly to evaluate.
     #[must_use]
     pub fn root_mut(&mut self, root: &mut T) -> Result<(T,T), Error<T>> {
         let mut a;
