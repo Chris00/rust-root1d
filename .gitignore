@@ -1,4 +1,5 @@
 _build/
+benches/*.py
 /target
 Cargo.lock
 perf.data*
