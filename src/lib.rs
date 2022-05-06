@@ -1708,6 +1708,36 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    #[should_panic]
+    fn bisect_no_sign_change() {
+        let f = |x: f64| x * x - 1.;
+        let _ = root1d::bisect(f, -2., 2.).root();
+    }
+
+    #[test]
+    #[should_panic]
+    fn toms748_no_sign_change() {
+        let f = |x: f64| x * x - 1.;
+        let _ = root1d::toms748(f, -2., 2.).root();
+    }
+
+    #[test]
+    fn bisect_f_nan() {
+        let f = |x: f64| (x * x - 1.).sqrt() + x;
+        assert!(matches!(
+            root1d::bisect(f, -2., 2.).root(),
+            Err(root1d::Error::NotFinite {x: _, fx: _})));
+    }
+
+    #[test]
+    fn toms748_f_nan() {
+        let f = |x: f64| (x * x - 1.).sqrt() + x;
+        assert!(matches!(
+            root1d::toms748(f, -2., 2.).root(),
+            Err(root1d::Error::NotFinite {x: _, fx: _})));
+    }
+
     // #[bench]
     // fn bisection_f64_speed(b: &mut Bencher) {
     //     let f = |x| x * x - 2.;
@@ -1814,5 +1844,47 @@ mod tests_rug {
         assert_approx_eq!(root1d::bisect_mut(f, &a, &b).root()?.to_f64(),
                           PI, 1e-12);
         Ok(())
+    }
+
+    #[test]
+    #[should_panic]
+    fn bisect_no_sign_change() {
+        let f = |y: &mut Float, x: &Float| { y.assign(x * x);  *y -= 1. };
+        let a = Float::with_val(53, -2_f64);
+        let b = Float::with_val(53, 2_f64);
+        let _ = root1d::bisect_mut(f, &a, &b).root();
+    }
+
+    #[test]
+    #[should_panic]
+    fn toms748_no_sign_change() {
+        let f = |y: &mut Float, x: &Float| { y.assign(x * x);  *y -= 1. };
+        let a = Float::with_val(53, -2_f64);
+        let b = Float::with_val(53, 2_f64);
+        let _ = root1d::toms748_mut(f, &a, &b).root();
+    }
+
+    #[test]
+    fn bisect_f_nan() {
+        let f = |y: &mut Float, x: &Float| {
+            y.assign(x * x);  *y -= 1.;  y.sqrt_mut();  *y -= x;
+        };
+        let a = Float::with_val(53, -2_f64);
+        let b = Float::with_val(53, 2_f64);
+        assert!(matches!(
+            root1d::bisect_mut(f, &a, &b).root(),
+            Err(root1d::Error::NotFinite {x: _, fx: _})));
+    }
+
+    #[test]
+    fn toms748_f_nan() {
+        let f = |y: &mut Float, x: &Float| {
+            y.assign(x * x);  *y -= 1.;  y.sqrt_mut();  *y -= x;
+        };
+        let a = Float::with_val(53, -2_f64);
+        let b = Float::with_val(53, 2_f64);
+        assert!(matches!(
+            root1d::toms748_mut(f, &a, &b).root(),
+            Err(root1d::Error::NotFinite {x: _, fx: _})));
     }
 }
