@@ -10,6 +10,7 @@ documentation = "https://docs.rs/root1d"
 license = "GPL-2.0-or-later"
 keywords = ["root", "math", "floating-point", "science"]
 categories = ["mathematics", "science"]
+exclude = ["*.org", "dune-project", "dune", "*.ml"]
 
 [dependencies.rug]
 version = "1.15.0"
