@@ -236,7 +236,7 @@ macro_rules! new_root_finding_method {
     ($(#[$docfn: meta])* $fun: ident,
      // The structure to hold the options (and other fields).
      $(#[$doc: meta])* $struct: ident <$($l: lifetime,)? ...>,
-     $($field: ident, $t: ty)*) => {
+     $($field: ident, $t: ty),*) => {
         $(#[$docfn])*
         #[must_use]
         pub fn $fun<$($l,)? T,F>(f: F, a: $(&$l)? T, b: $(&$l)? T)
@@ -267,7 +267,7 @@ macro_rules! new_root_finding_method {
             t: Term,  // Termination criterion
             maxiter: usize,
             maxiter_err: bool,
-            $($field: $t)*
+            $($field: $t,)*
         }
 
         impl<$($l,)? T, F, Term> $struct<$($l,)? T, F, Term>
@@ -541,7 +541,8 @@ new_root_finding_method! (
     bisect_mut,
     /// Bisection algorithm (for non-[`Copy`] types).
     BisectMut<'a,...>,
-    workspace, Option<&'a mut (T,T,T,T,T)>);
+    workspace, Option<&'a mut (T,T,T,T,T)>,
+    owned_workspace, Option<(T,T,T,T,T)>);
 
 impl<'a, T, F, Term> BisectMut<'a, T, F, Term>
 where T: Bisectable, Term: Terminate<T> {
@@ -608,11 +609,17 @@ where T: Bisectable,
     /// inheriting its precision for example.
     #[must_use]
     pub fn root_mut(&mut self, root: &mut T) -> Result<(), Error<T>> {
-        let mut tmp;
+        // If some workspace if given, use it even if internal storage
+        // is available because it may have different, say, precision
+        // characteristics.
         let (a, b, fa, fb, fx) = match &mut self.workspace {
             None => {
-                tmp = (root.clone(), root.clone(), root.clone(),
-                       root.clone(), root.clone());
+                if self.owned_workspace.is_none() {
+                    self.owned_workspace = Some(
+                        (root.clone(), root.clone(), root.clone(),
+                         root.clone(), root.clone()));
+                }
+                let tmp = self.owned_workspace.as_mut().unwrap();
                 (&mut tmp.0, &mut tmp.1, &mut tmp.2, &mut tmp.3, &mut tmp.4)
             }
             Some(v) =>
@@ -1071,7 +1078,8 @@ new_root_finding_method!(
     toms748_mut,
     /// [`toms748_mut`] algorithm (for non-[`Copy`] types).
     Toms748Mut<'a,...>,
-    workspace, Option<&'a mut (T,T,T,T,T,T,T,T,T,T,T,T,T,T,T,T)>);
+    workspace, Option<&'a mut (T,T,T,T,T,T,T,T,T,T,T,T,T,T,T,T)>,
+    owned_workspace, Option<(T,T,T,T,T,T,T,T,T,T,T,T,T,T,T,T)>);
 
 impl<'a, T, F, Term> Toms748Mut<'a, T, F, Term>
 where T: OrdFieldMut,
@@ -1137,14 +1145,18 @@ where T: OrdFieldMut + 'a,
     /// inheriting its precision for example.
     #[must_use]
     pub fn root_mut(&mut self, root: &mut T) -> Result<(), Error<T>> {
-        let mut tmp;
         let (a, b, c, d, e, fa, fb, fc, fd, fe,
              t1, t2, t3, t4, t5, dist_an_bn) = match &mut self.workspace {
             None => {
-                tmp = (root.clone(), root.clone(), root.clone(), root.clone(),
-                       root.clone(), root.clone(), root.clone(), root.clone(),
-                       root.clone(), root.clone(), root.clone(), root.clone(),
-                       root.clone(), root.clone(), root.clone(), root.clone());
+                if self.owned_workspace.is_none() {
+                    self.owned_workspace = Some((
+                        root.clone(), root.clone(), root.clone(), root.clone(),
+                        root.clone(), root.clone(), root.clone(), root.clone(),
+                        root.clone(), root.clone(), root.clone(), root.clone(),
+                        root.clone(), root.clone(), root.clone(), root.clone()
+                        ));
+                }
+                let tmp = self.owned_workspace.as_mut().unwrap();
                 (&mut tmp.0, &mut tmp.1, &mut tmp.2, &mut tmp.3,
                  &mut tmp.4, &mut tmp.5, &mut tmp.6, &mut tmp.7,
                  &mut tmp.8, &mut tmp.9, &mut tmp.10, &mut tmp.11,
