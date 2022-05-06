@@ -25,8 +25,8 @@ fn main() -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
     for i in 1..4 {
         let c = Float::with_val(53, i as f64);
         let f = |y: &mut Float, x: &Float| { y.assign(x * x); *y -= &c; };
-        let e = bisect_mut(f, &a, &b).work(&mut w).maxiter_err(true)
-            .root_mut(&mut r);
+        let mut b = bisect_mut(f, &a, &b).work(&mut w).maxiter_err(true);
+        let e = b.root_mut(&mut r);
         println!("i = {} ⟹ root = {} (prec: {}; {:?})", i, r, r.prec(), e);
     }
 

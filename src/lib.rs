@@ -601,14 +601,33 @@ where T: Bisectable,
       F: FnMut(&mut T, &T),
       Term: Terminate<T> {
     /// Set `root` to a root of the function `f` (see [`bisect_mut`]).
-    /// Return `Some(err)` to indicate that the algorithm failed
-    /// (e.g., when the function `f` returned a NaN value).
+    /// Return the final bracket if all went well or an error to
+    /// indicate that the algorithm failed (e.g., when the function
+    /// `f` returned a NaN value).  Note that, if you want to use the
+    /// returned bracket, you must bind `self` to ensure that it lives
+    /// long enough for the references to be valid.
     ///
     /// If the [`work`][`BisectMut::work`] method was not used,
     /// internal variables are constructed by cloning `root`, thereby
     /// inheriting its precision for example.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use root1d::bisect_mut;
+    /// use rug::{Assign, Float};
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let f = |y: &mut Float, x: &Float| { y.assign(x - 2); };
+    /// let a0 = Float::with_val(53, 0.);
+    /// let b0 = Float::with_val(53, 3.);
+    /// let mut bi = bisect_mut(f, &a0, &b0); // ⇒ `a`, `b` live long enough
+    /// let mut x = a0.clone();
+    /// let (a, b) = bi.root_mut(&mut x)?;
+    /// assert!(*a <= x && x <= *b);
+    /// # Ok(()) }
+    /// ```
     #[must_use]
-    pub fn root_mut(&mut self, root: &mut T) -> Result<(), Error<T>> {
+    pub fn root_mut(&mut self, root: &mut T) -> Result<(&T, &T), Error<T>> {
         // If some workspace if given, use it even if internal storage
         // is available because it may have different, say, precision
         // characteristics.
@@ -638,7 +657,7 @@ where T: Bisectable,
                 for _ in 0 .. self.maxiter {
                     root.assign_mid(a, b);
                     if self.t.stop(a, b, fa, fb) {
-                        return Ok(());
+                        return Ok((a, b));
                     }
                     (self.f)(fx, root);
                     // `swap` so as to reuse allocated memory.
@@ -646,8 +665,10 @@ where T: Bisectable,
                                    swap(fa, fx); }
                     else if fx.$gt0() { swap(b, root);
                                        swap(fb, fx); }
-                    else if fx.is_finite() { return Ok(()) }
-                    else {
+                    else if fx.is_finite() {
+                        a.assign(root); // `a` lifetime linked to `self`
+                        return Ok((a, a))
+                    } else {
                         return Err(Error::NotFinite{ x: root.clone(),
                                                      fx: fx.clone() })
                     }
@@ -660,11 +681,11 @@ where T: Bisectable,
             SignChange::PosNeg => { body!(gt0, lt0) }
             SignChange::Root1 => {
                 root.assign(self.a);
-                return Ok(())
+                return Ok((a, a))
             }
             SignChange::Root2 => {
                 root.assign(self.b);
-                return Ok(())
+                return Ok((b, b))
             }
         }
 
@@ -672,7 +693,7 @@ where T: Bisectable,
             Err(Error::MaxIter)
         } else {
             root.assign_mid(a, b);
-            Ok(())
+            Ok((a, b))
         }
     }
 
@@ -683,6 +704,13 @@ where T: Bisectable,
     pub fn root(&mut self) -> Result<T, Error<T>> {
         let mut root = self.a.clone();
         self.root_mut(&mut root).and(Ok(root))
+    }
+
+    /// Return an interval containing the root.  See
+    /// [`root_mut`][BisectMut::root_mut] for more information.
+    pub fn bracket(&mut self) -> Result<(&T, &T), Error<T>> {
+        let mut x = self.a.clone();
+        self.root_mut(&mut x)
     }
 }
 
@@ -779,24 +807,24 @@ macro_rules! bracket_sign {
     // Assume $a < $c < $b and $fa.$lt0() and $fb.$gt0()
     ($a: ident $b: ident $c: ident $d: ident,
      $fa: ident $fb: ident $fc: ident $fd: ident, $self: ident, $x: ident,
-     $assign: ident, $ok_val: ident, $lt0: ident, $gt0: ident) => {
+     $assign: ident, $lt0: ident, $gt0: ident) => {
         if $fc.$lt0() {
             if $self.t.stop(&$c, &$b, &$fc, &$fb) {
                 $x.assign_mid(&$c, &$b);
-                return Ok($ok_val!($c, $b))
+                return Ok(($c, $b))
             }
             $assign!($d, $a);  $assign!($fd, $fa);
             $assign!($a, $c);  $assign!($fa, $fc); // `$b` and `$fb` unchanged
         } else if $fc.$gt0() {
             if $self.t.stop(&$a, &$c, &$fa, &$fc) {
                 $x.assign_mid(&$a, &$c);
-                return Ok($ok_val!($a, $c))
+                return Ok(($a, $c))
             }
             $assign!($d, $b);  $assign!($fd, $fb);
             $assign!($b, $c);  $assign!($fb, $fc); // `$a` and `$fa` unchanged
         } else if $fc.is_finite() {
             $assign!(*$x, $c);
-            return Ok($ok_val!($c, $c))
+            return Ok(($c, $c))
         } else {
             return Err(Error::NotFinite{ x: $c.clone(), fx: $fc.clone() })
         }
@@ -804,7 +832,6 @@ macro_rules! bracket_sign {
 }
 
 macro_rules! assign_copy { ($y: expr, $x: ident) => { $y = $x } }
-macro_rules! ok_copy { ($a: expr, $b: expr) => { ($a, $b) } }
 
 /// `bracket_neg_pos!(a b c d, fa fb fc fd, self, x)`: update `a`,
 /// `b`, and `d` (and the corresponding `fa`, `fb` and `fd`) according
@@ -816,7 +843,7 @@ macro_rules! bracket_copy {
      $fa: ident $fb: ident $fc: ident $fd: ident,
      $self: ident, $x: ident, $lt0: ident, $gt0: ident) => {
         bracket_sign!($a $b $c $d, $fa $fb $fc $fd, $self, $x,
-                      assign_copy, ok_copy, $lt0, $gt0)
+                      assign_copy, $lt0, $gt0)
     }
 }
 
@@ -1094,7 +1121,6 @@ where T: OrdFieldMut,
 }
 
 macro_rules! assign_mut { ($y: expr, $x: ident) => { $y.assign($x) } }
-macro_rules! ok_mut { ($a: expr, $b: expr) => { () } }
 
 /// `bracket_neg_pos!(a b c d, fa fb fc fd, self, x)`: update `a`,
 /// `b`, and `d` (and the corresponding `fa`, `fb` and `fd`) according
@@ -1106,7 +1132,7 @@ macro_rules! bracket_mut {
      $fa: ident $fb: ident $fc: ident $fd: ident,
      $self: ident, $x: ident, $lt0: ident, $gt0: ident) => {
         bracket_sign!($a $b $c $d, $fa $fb $fc $fd, $self, $x,
-                      assign_mut, ok_mut, $lt0, $gt0)
+                      assign_mut, $lt0, $gt0)
     }
 }
 
@@ -1136,15 +1162,42 @@ where T: OrdFieldMut + 'a,
         self.root_mut(&mut root).and(Ok(root))
     }
 
+    /// Return an interval containing the root.  See
+    /// [`root_mut`][Toms748Mut::root_mut] for more information.
+    pub fn bracket(&mut self) -> Result<(&T, &T), Error<T>> {
+        let mut x = self.a.clone();
+        self.root_mut(&mut x)
+    }
+
     /// Set `root` to a root of the function `f` (see [`toms748_mut`]).
-    /// Return `Some(err)` to indicate that the algorithm failed
-    /// (e.g., when the function `f` returned a NaN value).
+    /// Return the final bracket if all went well or an error to
+    /// indicate that the algorithm failed (e.g., when the function
+    /// `f` returned a NaN value).  Note that, if you want to use the
+    /// returned bracket, you must bind `self` to ensure that it lives
+    /// long enough for the references to be valid.
     ///
     /// If the [`work`][`Toms748Mut::work`] method was not used,
     /// internal variables are constructed by cloning `root`, thereby
     /// inheriting its precision for example.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use root1d::toms748_mut;
+    /// use rug::{Assign, Float};
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let f = |y: &mut Float, x: &Float| { y.assign(x - 2); };
+    /// let a0 = Float::with_val(53, 0.);
+    /// let b0 = Float::with_val(53, 3.);
+    /// let mut tm = toms748_mut(f, &a0, &b0); // ⇒ `a`, `b` live long enough
+    /// let mut x = a0.clone();
+    /// let (a, b) = tm.root_mut(&mut x)?;
+    /// assert!(*a <= x && x <= *b);
+    /// # Ok(()) }
+    /// ```
     #[must_use]
-    pub fn root_mut(&mut self, root: &mut T) -> Result<(), Error<T>> {
+    pub fn root_mut(&mut self, root: &mut T)
+                    -> Result<(&T, &T), Error<T>> {
         let (a, b, c, d, e, fa, fb, fc, fd, fe,
              t1, t2, t3, t4, t5, dist_an_bn) = match &mut self.workspace {
             None => {
@@ -1181,7 +1234,7 @@ where T: OrdFieldMut + 'a,
                 // `fa` and `fb` set by `check_sign_mut`.
                 if self.t.stop(&a, &b, &fa, &fb) {
                     root.assign_mid(a, b);
-                    return Ok(())
+                    return Ok((a, b))
                 }
                 // 4.2.1 = 4.1.1: (a, b) = (a₁, b₁)
                 c.assign(a);
@@ -1276,14 +1329,14 @@ where T: OrdFieldMut + 'a,
                              &mut self.f, fa, fb)? {
             SignChange::NegPos => { body!(lt0, gt0, abs_lt_neg_pos_mut); }
             SignChange::PosNeg => { body!(gt0, lt0, abs_lt_pos_neg_mut); },
-            SignChange::Root1 => { root.assign(a); return Ok(()) },
-            SignChange::Root2 => { root.assign(b); return Ok(())},
+            SignChange::Root1 => { root.assign(a); return Ok((a, a)) },
+            SignChange::Root2 => { root.assign(b); return Ok((a, a))},
         }
         if self.maxiter_err {
             return Err(Error::MaxIter)
         }
-        root.assign_mid(&a, &b);
-        Ok(())
+        root.assign_mid(a, b);
+        Ok((a, b))
     }
 
     /// Return `true` if `x` ∈ \]`a`, `b`\[.  If `x` is NaN or ±∞
