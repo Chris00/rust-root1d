@@ -61,7 +61,6 @@ jobs:
       shell: bash
     - run: rustup target add ${{ matrix.target }}
     - run: cargo build
-    - run: cargo test
-    - run: cargo test --release --all-features
+    - run: cargo test --all-features
       if: startsWith(matrix.os, 'ubuntu')
     - run: cargo run --example speed_toms748
