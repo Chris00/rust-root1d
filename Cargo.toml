@@ -8,7 +8,7 @@ homepage = "https://github.com/Chris00/rust-root1d"
 repository = "https://github.com/Chris00/rust-root1d"
 documentation = "https://docs.rs/root1d"
 license = "GPL-2.0-or-later"
-keywords = ["root", "math", "floating-point", "science"]
+keywords = ["root", "math", "numerical", "floating-point", "science"]
 categories = ["mathematics", "science"]
 exclude = ["*.org", "dune-project", "dune", "*.ml"]
 
