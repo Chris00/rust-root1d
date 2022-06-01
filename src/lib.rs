@@ -963,7 +963,7 @@ where T: OrdField,
                     }
                 };
                 // 4.2.9 = 4.1.7: c = ĉₙ
-                if dist.twice() > len {
+                if !(dist.twice() <= len) { // negated for the case dist is NaN
                     c.assign_mid(&a, &b);
                 }
                 // 4.2.10 = 4.1.8: (a, b, d) = (âₙ, b̂ₙ, d̂ₙ)
@@ -1015,10 +1015,22 @@ where T: OrdField,
         if Self::is_inside_interval(r, a, b) {
             r
         } else { // Maybe fabd = 0, or d ∈ {a,b},...
-            let r = a - fa / fab;
-            if r <= a { a + (b - a).div64() }
-            else if r >= b { b - (b - a).div64() }
-            else { r }
+            let mut r = a - fa / fab;  // NaN if f returns infinite values
+            if a < r {
+                if r < b {
+                    r
+                } else if r >= b {
+                    b - (b - a).div64()
+                } else { // r is NaN
+                    r.assign_mid(&a, &b);
+                    r
+                }
+            } else if r <= a {
+                a + (b - a).div64()
+            } else { // r is NaN
+                r.assign_mid(&a, &b);
+                r
+            }
         }
     }
 
@@ -1306,7 +1318,7 @@ where T: OrdFieldMut + 'a,
                 };
                 // 4.2.9 = 4.1.7: c = ĉₙ
                 t1.twice(); // t1 = 2|uₙ - c̅ₙ|
-                if t1 > t2 { // Recall t2 = b - a > 0
+                if !(t1 <= t2) { // Recall t2 = b - a > 0
                     c.assign_mid(&a, &b);
                 }
                 // 4.2.10 = 4.1.8: (a, b, d) = (âₙ, b̂ₙ, d̂ₙ)
@@ -1391,10 +1403,18 @@ where T: OrdFieldMut + 'a,
             r.assign(a);
             t1.assign(fa);  *t1 /= fab;
             *r -= t1; // a - fa / fab
-            if *r <= *a {
+            if *a < *r {
+                if *r < *b {
+                    // r is OK
+                } else if *r >= *b {
+                    r.assign(a);  *r -= b;  r.div64();  *r += b;
+                } else { // r is NaN
+                    r.assign_mid(&a, &b);
+                }
+            } else if *r <= *a {
                 r.assign(b);  *r -= a;  r.div64();  *r += a; // a + (b-a)/64
-            } else if *r >= *b {
-                r.assign(a);  *r -= b;  r.div64();  *r += b;
+            } else { // r is NaN
+                r.assign_mid(&a, &b);
             }
         }
     }
