@@ -1,5 +1,4 @@
 use std::f64::consts::{PI, E};
-use roots;
 
 // Functions use in the "Algorithms 748" paper.
 

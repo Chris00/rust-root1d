@@ -1,6 +1,5 @@
 use criterion::{Criterion, BenchmarkId, criterion_group, criterion_main};
 use root1d::{bisect, toms748};
-use roots;
 
 mod common;
 

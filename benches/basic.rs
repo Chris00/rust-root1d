@@ -1,6 +1,5 @@
 use criterion::{Criterion, BenchmarkId, criterion_group, criterion_main};
 use root1d::{bisect, toms748};
-use roots;
 
 fn bench_copy(c: &mut Criterion) {
     let mut group = c.benchmark_group("basic");

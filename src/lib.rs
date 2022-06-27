@@ -464,7 +464,6 @@ where T: Bisectable + Copy,
     /// continuous.  If it is not, the description of the returned
     /// interval still holds but it is not guaranteed that `f`
     /// possesses a root in it.
-    #[must_use]
     pub fn root_mut(&mut self, root: &mut T) -> Result<(T,T), Error<T>> {
         let mut a;
         let mut b;
@@ -575,7 +574,7 @@ where T: Bisectable,
         } else if fb.is_finite() { // f(b) = 0
             Ok(Root2)
         } else {
-            return Err(Error::NotFinite{ x: b.clone(), fx: fb.clone() })
+            Err(Error::NotFinite{ x: b.clone(), fx: fb.clone() })
         }
     } else if fa.gt0() {
         f(fb, b);
@@ -587,12 +586,12 @@ where T: Bisectable,
         } else if fb.is_finite() { // f(b) = 0
             Ok(Root2)
         } else {
-            return Err(Error::NotFinite{ x: b.clone(), fx: fb.clone() })
+            Err(Error::NotFinite{ x: b.clone(), fx: fb.clone() })
         }
     } else if fa.is_finite() { // f(a) = 0
         Ok(Root1)
     } else {
-        return Err(Error::NotFinite{ x: a.clone(), fx: fa.clone() })
+        Err(Error::NotFinite{ x: a.clone(), fx: fa.clone() })
     }
 }
 
@@ -626,7 +625,6 @@ where T: Bisectable,
     /// assert!(*a <= x && x <= *b);
     /// # Ok(()) }
     /// ```
-    #[must_use]
     pub fn root_mut(&mut self, root: &mut T) -> Result<(&T, &T), Error<T>> {
         // If some workspace if given, use it even if internal storage
         // is available because it may have different, say, precision
@@ -875,7 +873,6 @@ where T: OrdField,
     /// it generally requires a lot less evaluations of the function
     /// to achieve a desired precision.  This is particularly
     /// interesting if the function is costly to evaluate.
-    #[must_use]
     pub fn root_mut(&mut self, root: &mut T) -> Result<(T,T), Error<T>> {
         let mut a;
         let mut b;
@@ -1066,7 +1063,6 @@ where T: OrdField,
     /// Return `Ok(r)` where `r` is a root of the function or `Err` if
     /// the algorithm did not converge.  See
     /// [`root_mut`][Toms748::root_mut] for more information.
-    #[must_use]
     pub fn root(&mut self) -> Result<T, Error<T>> {
         let mut x = self.a;
         self.root_mut(&mut x).and(Ok(x))
@@ -1168,7 +1164,6 @@ where T: OrdFieldMut + 'a,
     /// Return a root of the function `f` (see [`toms748_mut`]) or
     /// `Err(e)` to indicate that the function `f` returned a NaN
     /// value.
-    #[must_use]
     pub fn root(&mut self) -> Result<T, Error<T>> {
         let mut root = self.a.clone();
         self.root_mut(&mut root).and(Ok(root))
@@ -1207,7 +1202,6 @@ where T: OrdFieldMut + 'a,
     /// assert!(*a <= x && x <= *b);
     /// # Ok(()) }
     /// ```
-    #[must_use]
     pub fn root_mut(&mut self, root: &mut T)
                     -> Result<(&T, &T), Error<T>> {
         let (a, b, c, d, e, fa, fb, fc, fd, fe,
@@ -1377,7 +1371,7 @@ where T: OrdFieldMut + 'a,
         den.assign(fab);
         t1.assign(a);  *t1 += b;  *t1 *= fabd;
         *den -= t1; // den = fab - fabd * (a + b)
-        if fabd.has_same_sign(&fa) {
+        if fabd.has_same_sign(fa) {
             r.assign(a); p.assign(fa)
         } else {
             r.assign(b); p.assign(fb)
@@ -1409,12 +1403,12 @@ where T: OrdFieldMut + 'a,
                 } else if *r >= *b {
                     r.assign(a);  *r -= b;  r.div64();  *r += b;
                 } else { // r is NaN
-                    r.assign_mid(&a, &b);
+                    r.assign_mid(a, b);
                 }
             } else if *r <= *a {
                 r.assign(b);  *r -= a;  r.div64();  *r += a; // a + (b-a)/64
             } else { // r is NaN
-                r.assign_mid(&a, &b);
+                r.assign_mid(a, b);
             }
         }
     }
