@@ -1757,6 +1757,35 @@ mod tests {
     //     let f = |x| x * x - 2.;
     //     b.iter(|| root1d::toms748(f, 0., 100.));
     // }
+
+    // Some functions for which roots are difficult to compute.
+    // Inspired from examples in Brent, R. (1973) Algorithms for
+    // Minimization without Derivatives. Englewood Cliffs, NJ: Prentice-Hall.
+    #[test]
+    fn difficult() -> R<f64> {
+        let delta = 1e-3;
+        let a = 0.;  let b = 1.;
+        let fa = -(b - a - delta) / delta * 2f64.powf(b / delta);
+        let f_a_delta = 2f64.powf(a / delta);
+        let root = a - delta / (f_a_delta / fa - 1.);
+        let f = |x: f64| {
+            if a + delta <= x && x <= b { 2f64.powf(x / delta) }
+            else if x == a { fa }
+            else { fa + (f_a_delta - fa) * (x - a) / delta } };
+        assert_approx_eq!(root1d::toms748(f, a, b).atol(1e-20).root()?,
+                          root, 1e-20);
+        Ok(())
+    }
+
+    #[test]
+    fn all_deriv_vanishing() -> R<f64> {
+        // All derivatives vanish at 0.
+        let f = |x:f64| { if x == 0. { 0. }
+                          else { x * (-1. / x.abs().powf(0.1)).exp() }};
+        assert_approx_eq!(root1d::toms748(f, -1., 4.).atol(1e-20).root()?,
+                          0., 1e-20);
+        Ok(())
+    }
 }
 
 #[cfg(all(test, feature = "rug"))]
