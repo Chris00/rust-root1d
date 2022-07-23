@@ -1640,11 +1640,22 @@ macro_rules! assert_approx_eq {
 
 #[cfg(test)]
 mod tests {
-    use std::f64::consts::PI;
+    use std::{fmt::{Debug, Display},
+              f64::consts::PI};
     use crate as root1d;
     //use test::bench::Bencher;
 
     type R<T> = Result<(), root1d::Error<T>>;
+
+    #[test]
+    fn error_is_static() {
+        // Compile time test.
+        fn _f<T>(x: T) -> Result<(), Box<dyn std::error::Error + 'static>>
+        where T: Debug + Display + 'static + Clone {
+            let fx = x.clone();
+            Err(Box::new(root1d::Error::NotFinite{x, fx}))
+        }
+    }
 
     #[test]
     fn bisect_decr_bounds() -> R<f64> {
