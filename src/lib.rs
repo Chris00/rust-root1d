@@ -233,31 +233,10 @@ impl_bisectable_fXX!(f32);
 /// (needed for non-Copy types).
 macro_rules! new_root_finding_method {
     // Function to initialize the struct.
-    ($(#[$docfn: meta])* $fun: ident,
+    ($fun: ident,
      // The structure to hold the options (and other fields).
      $(#[$doc: meta])* $struct: ident <$($l: lifetime,)? ...>,
      $($field: ident, $t: ty),*) => {
-        $(#[$docfn])*
-        #[must_use]
-        pub fn $fun<$($l,)? T,F>(f: F, a: $(&$l)? T, b: $(&$l)? T)
-                                 -> $struct<$($l,)? T, F, T::DefaultTerminate>
-        where T: Bisectable {
-            if !a.is_finite() {
-                panic!("root1d::{}: a = {:?} must be finite",
-                       stringify!($fun), a)
-            }
-            if !b.is_finite() {
-                panic!("root1d::{}: b = {:?} must be finite",
-                       stringify!($fun), b)
-            }
-            $struct { f,  a,  b,
-                      t: T::DefaultTerminate::default(),
-                      maxiter: 100,
-                      maxiter_err: false,
-                      $($field: None,)*  // All extra fields are options
-            }
-        }
-
         $(#[$doc])*
         pub struct $struct<$($l,)? T, F, Term>
         where Term: Terminate<T> {
@@ -268,6 +247,28 @@ macro_rules! new_root_finding_method {
             maxiter: usize,
             maxiter_err: bool,
             $($field: $t,)*
+        }
+
+        impl <$($l,)? T, F> $struct<$($l,)? T, F, T::DefaultTerminate>
+        where T: Bisectable {
+            /// Private constructor called by $fun with more constraints.
+            #[must_use]
+            fn new(f: F, a: $(&$l)? T, b: $(&$l)? T) -> Self {
+                if !a.is_finite() {
+                    panic!("root1d::{}: a = {:?} must be finite",
+                           stringify!($fun), a)
+                }
+                if !b.is_finite() {
+                    panic!("root1d::{}: b = {:?} must be finite",
+                           stringify!($fun), b)
+                }
+                $struct { f,  a,  b,
+                          t: T::DefaultTerminate::default(),
+                          maxiter: 100,
+                          maxiter_err: false,
+                          $($field: None,)*  // All extra fields are options
+                }
+            }
         }
 
         impl<$($l,)? T, F, Term> $struct<$($l,)? T, F, Term>
@@ -337,46 +338,52 @@ macro_rules! new_root_finding_method {
 //
 // Bisection for copy types
 
+/// Find a root of the function `f` on the interval \[`a`, `b`\]
+/// with finite bounds assuming `f(a)` and `f(b)` have opposite
+/// signs and `f` is continuous using the bisection algorithm.
+///
+/// Trying to compute the root when `f(a)` and `f(b)` do *not*
+/// have opposite signs will [`panic!`].  If the function is not
+/// continuous, root-finding methods will still compute a small
+/// interval at the boundary of which `f` changes sign and return
+/// a point in it; [`Bisect::bracket`] and [`Bisect::root_mut`]
+/// return the small interval.
+///
+/// The default stopping criterion for [`f64`] (resp. [`f32`]) is
+/// given by [`Tol`] with `rtol: 4. * f64::EPSILON`, and
+/// `atol: 2e-12` (resp. `rtol:4. * f32::EPSILON` and
+/// `atol: 2e-6`).  The [`Terminate`] stopping criterion is
+/// |a - b| ≤ `rtol` · max{|a|, |b|} + `atol`.
+///
+/// The default maximum number of iterations is `100` and reaching that
+/// many iteration simply returns the root (you can report that as an
+/// error by calling [`maxiter_err`][Bisect::maxiter]`(true)`).
+/// Nothing is computed until the [`root`][Bisect::root] or
+/// [`root_mut`][Bisect::root_mut] method is used on the result.
+/// See [`Bisect`]'s methods for more options.
+///
+/// The bisection algorithm is quite slow be requires only a few
+/// things from the type `T`.  Specifically, it requires that
+/// [`Bisectable`] is implemented for the type `T` (which also
+/// provides the default termination criteria).
+///
+/// # Example
+///
+/// ```
+/// use root1d::bisect;
+/// # use std::error::Error;
+/// # fn main() -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
+/// assert!((bisect(|x| x*x - 2., 0., 2.).atol(0.).root()?
+///          - 2f64.sqrt()).abs() < 1e-15);
+/// # Ok(()) }
+/// ```
+pub fn bisect<T, F>(f: F, a: T, b: T) -> Bisect<T, F, T::DefaultTerminate>
+where T: Bisectable,
+      F: FnMut(T) -> T {
+    Bisect::new(f, a, b)
+}
+
 new_root_finding_method!(
-    /// Find a root of the function `f` on the interval \[`a`, `b`\]
-    /// with finite bounds assuming `f(a)` and `f(b)` have opposite
-    /// signs and `f` is continuous using the bisection algorithm.
-    ///
-    /// Trying to compute the root when `f(a)` and `f(b)` do *not*
-    /// have opposite signs will [`panic!`].  If the function is not
-    /// continuous, root-finding methods will still compute a small
-    /// interval at the boundary of which `f` changes sign and return
-    /// a point in it; [`Bisect::bracket`] and [`Bisect::root_mut`]
-    /// return the small interval.
-    ///
-    /// The default stopping criterion for [`f64`] (resp. [`f32`]) is
-    /// given by [`Tol`] with `rtol: 4. * f64::EPSILON`, and
-    /// `atol: 2e-12` (resp. `rtol:4. * f32::EPSILON` and
-    /// `atol: 2e-6`).  The [`Terminate`] stopping criterion is
-    /// |a - b| ≤ `rtol` · max{|a|, |b|} + `atol`.
-    ///
-    /// The default maximum number of iterations is `100` and reaching that
-    /// many iteration simply returns the root (you can report that as an
-    /// error by calling [`maxiter_err`][Bisect::maxiter]`(true)`).
-    /// Nothing is computed until the [`root`][Bisect::root] or
-    /// [`root_mut`][Bisect::root_mut] method is used on the result.
-    /// See [`Bisect`]'s methods for more options.
-    ///
-    /// The bisection algorithm is quite slow be requires only a few
-    /// things from the type `T`.  Specifically, it requires that
-    /// [`Bisectable`] is implemented for the type `T` (which also
-    /// provides the default termination criteria).
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use root1d::bisect;
-    /// # use std::error::Error;
-    /// # fn main() -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
-    /// assert!((bisect(|x| x*x - 2., 0., 2.).atol(0.).root()?
-    ///          - 2f64.sqrt()).abs() < 1e-15);
-    /// # Ok(()) }
-    /// ```
     bisect,
     /// Bisection algorithm (for [`Copy`] types).
     Bisect<...>,);
@@ -513,30 +520,37 @@ where T: Bisectable + Copy,
 //
 // Bisection for non-copy types
 
+/// Same as [`bisect`] for non-[`Copy`] types.
+///
+/// The default maximum number of iterations is 100 and reaching that
+/// many iteration simply returns the root (you can report that as an
+/// error by calling [`maxiter_err`][BisectMut::maxiter]`(true)`).
+/// Nothing is computed until the [`root`][BisectMut::root] or
+/// [`root_mut`][BisectMut::root_mut] method is used on the result.
+/// See [`BisectMut`]'s methods for more options.
+///
+/// This method requires that [`Bisectable`] is implemented for the
+/// type `T` which provides the default termination criteria.
+///
+/// # Example
+///
+/// ```
+/// use root1d::bisect_mut;
+/// # use std::error::Error;
+/// # fn main() -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
+/// let f = |y: &mut f64, x: &f64| *y = *x * *x - 2.;
+/// assert!((bisect_mut(f, &0., &2.).atol(0.).root()?
+///          - 2f64.sqrt()).abs() < 1e-15);
+/// # Ok(()) }
+/// ```
+pub fn bisect_mut<'a, T, F>(
+    f: F, a: &'a T, b: &'a T) -> BisectMut<'a, T, F, T::DefaultTerminate>
+where T: Bisectable,
+      F: FnMut(&mut T, &T) {
+    BisectMut::new(f, a, b)
+}
+
 new_root_finding_method! (
-    /// Same as [`bisect`] for non-[`Copy`] types.
-    ///
-    /// The default maximum number of iterations is 100 and reaching that
-    /// many iteration simply returns the root (you can report that as an
-    /// error by calling [`maxiter_err`][BisectMut::maxiter]`(true)`).
-    /// Nothing is computed until the [`root`][BisectMut::root] or
-    /// [`root_mut`][BisectMut::root_mut] method is used on the result.
-    /// See [`BisectMut`]'s methods for more options.
-    ///
-    /// This method requires that [`Bisectable`] is implemented for the
-    /// type `T` which provides the default termination criteria.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use root1d::bisect_mut;
-    /// # use std::error::Error;
-    /// # fn main() -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
-    /// let f = |y: &mut f64, x: &f64| *y = *x * *x - 2.;
-    /// assert!((bisect_mut(f, &0., &2.).atol(0.).root()?
-    ///          - 2f64.sqrt()).abs() < 1e-15);
-    /// # Ok(()) }
-    /// ```
     bisect_mut,
     /// Bisection algorithm (for non-[`Copy`] types).
     BisectMut<'a,...>,
@@ -751,52 +765,58 @@ macro_rules! impl_ordfield_fXX {
 impl_ordfield_fXX!(f32);
 impl_ordfield_fXX!(f64);
 
+/// Find a root of the function `f` on the interval \[`a`, `b`\],
+/// with finite bounds assuming `f(a)` and `f(b)` have opposite
+/// signs and `f` is continuous using Algorithm 748 by Alefeld,
+/// Potro and Shi.
+///
+/// Trying to compute the root when `f(a)` and `f(b)` do *not*
+/// have opposite signs will [`panic!`].  If the function is not
+/// continuous, root-finding methods will still compute a small
+/// interval at the boundary of which `f` changes sign and return
+/// a point in it; [`Toms748::bracket`] and [`Toms748::root_mut`]
+/// return the small interval.  This algorithm works best when the
+/// function is of 4 times continuously differentiable on
+/// \[`a`, `b`\] and the root is simple.
+///
+/// The default stopping criterion for [`f64`] (resp. [`f32`]) is
+/// given by [`Tol`] with `rtol: 4. * f64::EPSILON`, and
+/// `atol: 2e-12` (resp. `rtol:4. * f32::EPSILON` and
+/// `atol: 2e-6`).  The [`Terminate`] stopping criterion is
+/// |a - b| ≤ `rtol` · max{|a|, |b|} + `atol`.
+///
+/// The default maximum number of iterations is `100` and reaching
+/// that many iteration simply returns the root (you can report
+/// that as an error with the option
+/// [`maxiter_err`][Bisect::maxiter]`(true)`).  The maximum number
+/// of iterations can be changed using the
+/// [`maxiter`][Toms748::maxiter] method.  See the methods of
+/// [`Toms748`] for more options.
+///
+/// # Example
+///
+/// ```
+/// use root1d::toms748;
+/// # fn main() -> Result<(), root1d::Error<f64>> {
+/// let f = |x| x * x - 2.;
+/// assert!((toms748(f, 0., 2.).atol(0.).rtol(1e-10).root()?
+///          - 2f64.sqrt()).abs() < 1e-15);
+/// # Ok(()) }
+/// ```
+///
+/// # Reference
+///
+/// G. E. Alefeld, F. A. Potra, and Y. Shi, “Algorithm 748:
+/// enclosing zeros of continuous functions,” ACM Trans. Math. Softw.,
+/// vol. 21, no. 3, pp. 327–344, Sep. 1995, doi:
+/// [10.1145/210089.210111](https://dx.doi.org/10.1145/210089.210111).
+pub fn toms748<T, F>(f: F, a: T, b: T) -> Toms748<T, F, T::DefaultTerminate>
+where T: OrdField,
+      F: FnMut(T) -> T {
+    Toms748::new(f, a, b)
+}
+
 new_root_finding_method!(
-    /// Find a root of the function `f` on the interval \[`a`, `b`\],
-    /// with finite bounds assuming `f(a)` and `f(b)` have opposite
-    /// signs and `f` is continuous using Algorithm 748 by Alefeld,
-    /// Potro and Shi.
-    ///
-    /// Trying to compute the root when `f(a)` and `f(b)` do *not*
-    /// have opposite signs will [`panic!`].  If the function is not
-    /// continuous, root-finding methods will still compute a small
-    /// interval at the boundary of which `f` changes sign and return
-    /// a point in it; [`Toms748::bracket`] and [`Toms748::root_mut`]
-    /// return the small interval.  This algorithm works best when the
-    /// function is of 4 times continuously differentiable on
-    /// \[`a`, `b`\] and the root is simple.
-    ///
-    /// The default stopping criterion for [`f64`] (resp. [`f32`]) is
-    /// given by [`Tol`] with `rtol: 4. * f64::EPSILON`, and
-    /// `atol: 2e-12` (resp. `rtol:4. * f32::EPSILON` and
-    /// `atol: 2e-6`).  The [`Terminate`] stopping criterion is
-    /// |a - b| ≤ `rtol` · max{|a|, |b|} + `atol`.
-    ///
-    /// The default maximum number of iterations is `100` and reaching
-    /// that many iteration simply returns the root (you can report
-    /// that as an error with the option
-    /// [`maxiter_err`][Bisect::maxiter]`(true)`).  The maximum number
-    /// of iterations can be changed using the
-    /// [`maxiter`][Toms748::maxiter] method.  See the methods of
-    /// [`Toms748`] for more options.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use root1d::toms748;
-    /// # fn main() -> Result<(), root1d::Error<f64>> {
-    /// let f = |x| x * x - 2.;
-    /// assert!((toms748(f, 0., 2.).atol(0.).rtol(1e-10).root()?
-    ///          - 2f64.sqrt()).abs() < 1e-15);
-    /// # Ok(()) }
-    /// ```
-    ///
-    /// # Reference
-    ///
-    /// G. E. Alefeld, F. A. Potra, and Y. Shi, “Algorithm 748:
-    /// enclosing zeros of continuous functions,” ACM Trans. Math. Softw.,
-    /// vol. 21, no. 3, pp. 327–344, Sep. 1995, doi:
-    /// [10.1145/210089.210111](https://dx.doi.org/10.1145/210089.210111).
     toms748,
     /// [`toms748`] algorithm (for [`Copy`] types).
     Toms748<...>, );
@@ -1108,8 +1128,15 @@ pub trait OrdFieldMut: Bisectable
         }
     }
 
+/// Same as [`toms748`] for non-[`Copy`] types.
+pub fn toms748_mut<'a, T, F>(
+    f: F, a: &'a T, b: &'a T) -> Toms748Mut<'a, T, F, T::DefaultTerminate>
+where T: OrdFieldMut + 'a,
+      F: FnMut(&mut T, &T) {
+    Toms748Mut::new(f, a, b)
+}
+
 new_root_finding_method!(
-    /// Same as [`toms748`] for non-[`Copy`] types.
     toms748_mut,
     /// [`toms748_mut`] algorithm (for non-[`Copy`] types).
     Toms748Mut<'a,...>,
