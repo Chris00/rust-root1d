@@ -630,17 +630,18 @@ where T: Bisectable,
     /// # Example
     ///
     /// ```
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # #[cfg(feature = "rug")] {
     /// use root1d::bisect_mut;
     /// use rug::{Assign, Float};
-    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// let f = |y: &mut Float, x: &Float| { y.assign(x - 2); };
     /// let a0 = Float::with_val(53, 0.);
     /// let b0 = Float::with_val(53, 3.);
     /// let mut bi = bisect_mut(f, &a0, &b0); // ⇒ `a`, `b` live long enough
     /// let mut x = a0.clone();
     /// let (a, b) = bi.root_mut(&mut x)?;
-    /// assert!(*a <= x && x <= *b);
-    /// # Ok(()) }
+    /// assert!(a <= &x && &x <= b);
+    /// # } Ok(()) }
     /// ```
     pub fn root_mut(&mut self, root: &mut T) -> Result<(&T, &T), Error<T>> {
         // If some workspace if given, use it even if internal storage
@@ -1219,17 +1220,18 @@ where T: OrdFieldMut + 'a,
     /// # Example
     ///
     /// ```
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # #[cfg(feature = "rug")] {
     /// use root1d::toms748_mut;
     /// use rug::{Assign, Float};
-    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// let f = |y: &mut Float, x: &Float| { y.assign(x - 2); };
     /// let a0 = Float::with_val(53, 0.);
     /// let b0 = Float::with_val(53, 3.);
     /// let mut tm = toms748_mut(f, &a0, &b0); // ⇒ `a`, `b` live long enough
     /// let mut x = a0.clone();
     /// let (a, b) = tm.root_mut(&mut x)?;
-    /// assert!(*a <= x && x <= *b);
-    /// # Ok(()) }
+    /// assert!(a <= &x && &x <= b);
+    /// # } Ok(()) }
     /// ```
     pub fn root_mut(&mut self, root: &mut T)
                     -> Result<(&T, &T), Error<T>> {
