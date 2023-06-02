@@ -774,12 +774,12 @@ impl_ordfield_fXX!(f64);
 /// Potro and Shi.
 ///
 /// Trying to compute the root when `f(a)` and `f(b)` do *not*
-/// have opposite signs will return the error [`Error::NoSignchange`].
+/// have opposite signs will return the error [`Error::NoSignChange`].
 /// If the function is not continuous, root-finding methods will still
 /// compute a small interval at the boundary of which `f` changes sign
 /// and return a point in it; [`Toms748::bracket`] and
 /// [`Toms748::root_mut`] return the small interval.  This algorithm
-/// works best when the function is of 4 times continuously
+/// works best when the function is 4 times continuously
 /// differentiable on \[`a`, `b`\] and the root is simple.
 ///
 /// The default stopping criterion for [`f64`] (resp. [`f32`]) is
