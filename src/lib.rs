@@ -56,6 +56,9 @@ pub enum Error<T> {
     /// when option `maxiter_err` is turned on.  The argument is the
     /// current estimate of the root at that moment.
     MaxIter,
+    /// Report that the function did not change sign on the original
+    /// interval \[a, b\].
+    NoSignChange { a: T, fa: T, b: T, fb: T },
 }
 impl<T: Display> Display for Error<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
@@ -67,6 +70,9 @@ impl<T: Display> Display for Error<T> {
             Error::MaxIter => {
                 write!(f, "maximum number of iterations reached")
             }
+            Error::NoSignChange {a, fa, b, fb } =>
+                write!(f, "No change of sign on [a, b] = [{a}, {b}], \
+                           f(a) = {fa}, f(b) = {fb}"),
         }
     }
 }
@@ -343,11 +349,11 @@ macro_rules! new_root_finding_method {
 /// signs and `f` is continuous using the bisection algorithm.
 ///
 /// Trying to compute the root when `f(a)` and `f(b)` do *not*
-/// have opposite signs will [`panic!`].  If the function is not
-/// continuous, root-finding methods will still compute a small
-/// interval at the boundary of which `f` changes sign and return
-/// a point in it; [`Bisect::bracket`] and [`Bisect::root_mut`]
-/// return the small interval.
+/// have opposite signs will return the error [`Error::NoSignChange`].
+/// If the function is not continuous, root-finding methods will still
+/// compute a small interval at the boundary of which `f` changes sign
+/// and return a point in it; [`Bisect::bracket`] and
+/// [`Bisect::root_mut`] return the small interval.
 ///
 /// The default stopping criterion for [`f64`] (resp. [`f32`]) is
 /// given by [`Tol`] with `rtol: 4. * f64::EPSILON`, and
@@ -390,7 +396,7 @@ new_root_finding_method!(
 
 /// Indicate whether the values `fa` and `fb` of the function at
 /// endpoints of the interval \[`a`, `b`\] have opposite signs or if
-/// one of them vanishes.  Panic otherwise.
+/// one of them vanishes.
 enum SignChange {
     /// fa < 0 < fb
     NegPos,
@@ -404,19 +410,17 @@ enum SignChange {
 
 /// Says whether `fa` and `fb` have opposite signs (return `NegPos` of
 /// `PosNeg` in this case) or one of them is zero (return `Root1` or
-/// `Root2` in this case).  Panics if it is not the case.  Return an
-/// error if `fa` or `fb` is not finite.
+/// `Root2` in this case).  Return an error if `fa` or `fb` is not
+/// finite or `fa` * `fb` > 0.
 #[inline]
-fn check_sign<T>(name: &str, a: T, b: T, fa: T, fb: T)
-                 -> Result<SignChange, Error<T>>
+fn check_sign<T>(a: T, b: T, fa: T, fb: T) -> Result<SignChange, Error<T>>
 where T: Bisectable {
     use SignChange::*;
     if fa.lt0() {
         if fb.gt0() {
             Ok(NegPos)
         } else if fb.lt0() {
-            panic!("{}: no change of sign, f({:?}) < 0 and f({:?}) < 0.",
-                   name, a, b)
+            Err(Error::NoSignChange { a, fa, b, fb })
         } else if fb.is_finite() { // f(b) = 0
             Ok(Root2)
         } else {
@@ -426,8 +430,7 @@ where T: Bisectable {
         if fb.lt0() {
             Ok(PosNeg)
         } else if fb.gt0() {
-            panic!("{}: no change of sign, f({:?}) > 0 and f({:?}) > 0.",
-                   name, a, b)
+            Err(Error::NoSignChange { a, fa, b, fb })
         } else if fb.is_finite() { // f(b) = 0
             Ok(Root2)
         } else {
@@ -499,7 +502,7 @@ where T: Bisectable + Copy,
                 }
             }
         }
-        match check_sign("root1d::bisect", a, b, fa, fb)? {
+        match check_sign(a, b, fa, fb)? {
             SignChange::NegPos => { body!(lt0, gt0) } // f(a) < 0 < f(b)
             SignChange::PosNeg => { body!(gt0, lt0) },
             SignChange::Root1 => { *root = a;  return Ok((a, a))}
@@ -571,7 +574,7 @@ where T: Bisectable, Term: Terminate<T> {
 /// Same as [`check_sign`] for non-Copy types.  In addition evaluate
 /// `f` at `a` and `b` and store the result in `fa` and `fb` respectively.
 #[inline]
-fn check_sign_mut<T,F>(name: &str, a: &T, b: &T,
+fn check_sign_mut<T,F>(a: &T, b: &T,
                        f: &mut F, fa: &mut T, fb: &mut T)
                        -> Result<SignChange, Error<T>>
 where T: Bisectable,
@@ -583,8 +586,8 @@ where T: Bisectable,
         if fb.gt0() {
             Ok(NegPos)
         } else if fb.lt0() {
-            panic!("{}: no change of sign, f({:?}) < 0 and f({:?}) < 0.",
-                   name, a, b)
+            Err(Error::NoSignChange { a: a.clone(), fa: fa.clone(),
+                                      b: b.clone(), fb: fb.clone() })
         } else if fb.is_finite() { // f(b) = 0
             Ok(Root2)
         } else {
@@ -595,8 +598,8 @@ where T: Bisectable,
         if fb.lt0() {
             Ok(PosNeg)
         } else if fb.gt0() {
-            panic!("{}: no change of sign, f({:?}) > 0 and f({:?}) > 0.",
-                   name, a, b)
+            Err(Error::NoSignChange { a: a.clone(), fa: fa.clone(),
+                                      b: b.clone(), fb: fb.clone() })
         } else if fb.is_finite() { // f(b) = 0
             Ok(Root2)
         } else {
@@ -687,8 +690,7 @@ where T: Bisectable,
                 }
             }
         }
-        match check_sign_mut("root1d::bisect_mut", a, b,
-                             &mut self.f, fa, fb)? {
+        match check_sign_mut(a, b, &mut self.f, fa, fb)? {
             SignChange::NegPos => { body!(lt0, gt0) } // f(a) < 0 < f(b)
             SignChange::PosNeg => { body!(gt0, lt0) }
             SignChange::Root1 => {
@@ -771,13 +773,13 @@ impl_ordfield_fXX!(f64);
 /// Potro and Shi.
 ///
 /// Trying to compute the root when `f(a)` and `f(b)` do *not*
-/// have opposite signs will [`panic!`].  If the function is not
-/// continuous, root-finding methods will still compute a small
-/// interval at the boundary of which `f` changes sign and return
-/// a point in it; [`Toms748::bracket`] and [`Toms748::root_mut`]
-/// return the small interval.  This algorithm works best when the
-/// function is of 4 times continuously differentiable on
-/// \[`a`, `b`\] and the root is simple.
+/// have opposite signs will return the error [`Error::NoSignchange`].
+/// If the function is not continuous, root-finding methods will still
+/// compute a small interval at the boundary of which `f` changes sign
+/// and return a point in it; [`Toms748::bracket`] and
+/// [`Toms748::root_mut`] return the small interval.  This algorithm
+/// works best when the function is of 4 times continuously
+/// differentiable on \[`a`, `b`\] and the root is simple.
 ///
 /// The default stopping criterion for [`f64`] (resp. [`f32`]) is
 /// given by [`Tol`] with `rtol: 4. * f64::EPSILON`, and
@@ -999,7 +1001,7 @@ where T: OrdField,
                 }
             }
         }
-        match check_sign("root1d::toms748", a, b, fa, fb)? {
+        match check_sign(a, b, fa, fb)? {
             SignChange::NegPos => { body!(lt0, gt0, abs_lt_neg_pos); }
             SignChange::PosNeg => { body!(gt0, lt0, abs_lt_pos_neg); },
             SignChange::Root1 => { *root = a;  return Ok((a,a)) }
@@ -1358,8 +1360,7 @@ where T: OrdFieldMut + 'a,
                 }
             }
         }
-        match check_sign_mut("root1d::toms748_mut", a, b,
-                             &mut self.f, fa, fb)? {
+        match check_sign_mut(a, b, &mut self.f, fa, fb)? {
             SignChange::NegPos => { body!(lt0, gt0, abs_lt_neg_pos_mut); }
             SignChange::PosNeg => { body!(gt0, lt0, abs_lt_pos_neg_mut); },
             SignChange::Root1 => { root.assign(a); return Ok((a, a)) },
@@ -1761,17 +1762,17 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn bisect_no_sign_change() {
         let f = |x: f64| x * x - 1.;
-        let _ = root1d::bisect(f, -2., 2.).root();
+        assert!(matches!(root1d::bisect(f, -2., 2.).root(),
+                         Err(root1d::Error::NoSignChange {..})));
     }
 
     #[test]
-    #[should_panic]
     fn toms748_no_sign_change() {
         let f = |x: f64| x * x - 1.;
-        let _ = root1d::toms748(f, -2., 2.).root();
+        assert!(matches!(root1d::toms748(f, -2., 2.).root(),
+                         Err(root1d::Error::NoSignChange {..})));
     }
 
     #[test]
@@ -1928,21 +1929,21 @@ mod tests_rug {
     }
 
     #[test]
-    #[should_panic]
     fn bisect_no_sign_change() {
         let f = |y: &mut Float, x: &Float| { y.assign(x * x);  *y -= 1. };
         let a = Float::with_val(53, -2_f64);
         let b = Float::with_val(53, 2_f64);
-        let _ = root1d::bisect_mut(f, &a, &b).root();
+        assert!(matches!(root1d::bisect_mut(f, &a, &b).root(),
+                         Err(root1d::Error::NoSignChange {..})));
     }
 
     #[test]
-    #[should_panic]
     fn toms748_no_sign_change() {
         let f = |y: &mut Float, x: &Float| { y.assign(x * x);  *y -= 1. };
         let a = Float::with_val(53, -2_f64);
         let b = Float::with_val(53, 2_f64);
-        let _ = root1d::toms748_mut(f, &a, &b).root();
+        assert!(matches!(root1d::toms748_mut(f, &a, &b).root(),
+                         Err(root1d::Error::NoSignChange {..})));
     }
 
     #[test]
