@@ -332,7 +332,7 @@ macro_rules! new_root_finding_method {
             /// implements [`SetTolerances`]), leaving unchanged the value
             /// of the absolute tolerance.
             ///
-            /// Panics if `rtol` is ≤ 0.
+            /// Set the default value if `rtol` is ≤ 0.
             pub fn rtol<U>(mut self, rtol: U) -> Self
             where Term: SetTolerances<U> {
                 self.t.set_rtol(rtol);
@@ -342,7 +342,7 @@ macro_rules! new_root_finding_method {
             /// implements [`SetTolerances`]), leaving unchanged the value
             /// of the relative tolerance.
             ///
-            /// Panics if `atol` is < 0.
+            /// Set the default value if `atol` is < 0.
             pub fn atol<U>(mut self, atol: U) -> Self
             where Term: SetTolerances<U> {
                 self.t.set_atol(atol);
@@ -1601,8 +1601,8 @@ mod rug {
     macro_rules! float_is_zero { ($s: expr) => { Float::is_zero($s) } }
     macro_rules! float_div64 { ($x: ident) => { *$x *= 0.015625 } }
     impl_rug!(Float, float_new,
-              Float::with_val(53, 1e-16),
-              Float::with_val(53, 1e-12),
+              Float::with_val(53, 1e-16), // Sync with `set_rtol` below
+              Float::with_val(53, 1e-12), // Sync with `set_atol` below
               float_is_finite,
               fn assign_mid(&mut self, a: &Self, b: &Self) {
                   self.assign(a);
@@ -1628,15 +1628,19 @@ mod rug {
     impl<U> super::SetTolerances<U> for TolRug<Float>
     where Float: AssignRound<U, Round = Round, Ordering = Ordering> {
         fn set_rtol(&mut self, rtol: U) {
-            self.rtol.assign_round(rtol, Round::Nearest);
             if self.rtol <= 0 {
-                panic!("root1d<rug::Float>: rtol = {:e} ≤ 0", self.rtol)
+                <Float as AssignRound<f64>>::assign_round(
+                    &mut self.rtol, 1e-16, Round::Nearest);
+            } else {
+                self.rtol.assign_round(rtol, Round::Nearest);
             }
         }
         fn set_atol(&mut self, atol: U) {
-            self.atol.assign_round(atol, Round::Nearest);
             if self.atol < 0 {
-                panic!("root1d<rug::Float>: atol = {:e} < 0", self.atol)
+                <Float as AssignRound<f64>>::assign_round(
+                    &mut self.atol, 1e-12, Round::Nearest);
+            } else {
+                self.atol.assign_round(atol, Round::Nearest);
             }
         }
     }
@@ -1648,8 +1652,8 @@ mod rug {
     } }
     macro_rules! rational_div64 { ($x: ident) => { *$x /= 64 } }
     impl_rug!(Rational, rational_new,
-              (1, 1000_0000_0000_0000u64).into(),
-              (1, 1000_0000_0000_0000u64).into(),
+              (1, 1000_0000_0000_0000u64).into(), // Sync with set_rtol below
+              (1, 1000_0000_0000_0000u64).into(), // Sync with set_atol below
               rational_is_finite,
               fn assign_mid(&mut self, a: &Self, b: &Self) {
                   self.assign(a);
@@ -1675,15 +1679,21 @@ mod rug {
     impl<U> super::SetTolerances<U> for TolRug<Rational>
     where Rational: rug::Assign<U> {
         fn set_rtol(&mut self, rtol: U) {
-            <Rational as rug::Assign<U>>::assign(&mut self.rtol, rtol);
             if self.rtol <= 0 {
-                panic!("root1d<rug::Rational>: rtol = {} ≤ 0", self.rtol)
+                <Rational as rug::Assign<&(_, _)>>::assign(
+                    &mut self.rtol,
+                    &(1, 1000_0000_0000_0000u64));
+            } else {
+                <Rational as rug::Assign<U>>::assign(&mut self.rtol, rtol);
             }
         }
         fn set_atol(&mut self, atol: U) {
-            <Rational as rug::Assign<U>>::assign(&mut self.atol, atol);
             if self.atol < 0 {
-                panic!("root1d<rug::Rational>: atol = {} < 0", self.atol)
+                <Rational as rug::Assign<&(_,_)>>::assign(
+                    &mut self.atol,
+                    &(1, 1000_0000_0000_0000u64));
+            } else {
+                <Rational as rug::Assign<U>>::assign(&mut self.atol, atol);
             }
         }
     }
@@ -1740,8 +1750,8 @@ mod tests {
     fn test_ipzero() {
         // y³ + 3 = x
         let r = root1d::Toms748::<f64, fn(f64) -> f64, root1d::Tol<f64>>
-            ::ipzero(-5., 2., 4., 11.,
-                     -2., -1., 1., 2.);
+            ::ipzero([-5., 2., 4., 11.],
+                     [-2., -1., 1., 2.]);
         assert_eq!(r, 3.);
     }
 
