@@ -99,9 +99,9 @@ pub trait Terminate<T> {
 /// Indicate that the type `Self` uses relative and absolute
 /// tolerances that can be updated from type `U`.
 pub trait SetTolerances<U> {
-    /// Set the relative tolerance.  Must panic if `rtol` is ≤ 0.
+    /// Set the relative tolerance.  Set the default value if `rtol` is ≤ 0.
     fn set_rtol(&mut self, rtol: U);
-    /// Set the absolute tolerance.  Must panic if `atol` is < 0.
+    /// Set the absolute tolerance.  Set the default value if `atol` is < 0.
     fn set_atol(&mut self, atol: U);
 }
 
@@ -152,14 +152,10 @@ macro_rules! impl_traits_tol_fXX {
         // non-copy types `$t`.
         impl SetTolerances<$t> for Tol<$t> {
             fn set_rtol(&mut self, rtol: $t) {
-                if rtol <= 0. { panic!("root1d<{}>: rtol = {:e} ≤ 0",
-                                      stringify!($t), rtol) }
-                self.rtol = rtol;
+                self.rtol = if rtol <= 0. { $rtol } else { rtol }
             }
             fn set_atol(&mut self, atol: $t) {
-                if atol < 0. { panic!("root1d<{}>: atol = {:e} < 0",
-                                      stringify!($t), atol) }
-                self.atol = atol;
+                self.atol = if atol < 0. { $atol } else { atol }
             }
         }
     }
