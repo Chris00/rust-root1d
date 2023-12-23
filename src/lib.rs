@@ -164,6 +164,8 @@ macro_rules! impl_traits_tol_fXX {
 impl_traits_tol_fXX!(f64, 4. * f64::EPSILON, 2e-12);
 impl_traits_tol_fXX!(f32, 4. * f32::EPSILON, 2e-6);
 
+// Update if https://rust-lang.github.io/rfcs/3453-f16-and-f128.html
+// is merged.
 
 ////////////////////////////////////////////////////////////////////////
 //
