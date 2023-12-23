@@ -40,7 +40,8 @@
 //! [`toms748`] (resp. [`toms748_mut`]), you must also implement the
 //! trait [`OrdField`] (resp. [`OrdFieldMut`]).
 
-use std::{fmt::{self, Debug, Display, Formatter},
+use std::{cmp::Ordering,
+          fmt::{self, Debug, Display, Formatter},
           mem::swap,
           ops::{Neg, Add, Sub, Mul, Div,
                 AddAssign, SubAssign, MulAssign, DivAssign},
@@ -715,7 +716,6 @@ where T: Bisectable,
     /// Return a root of the function `f` (see [`bisect_mut`]) or
     /// `Err(e)` to indicate that the function `f` returned a NaN
     /// value.
-    #[must_use]
     pub fn root(&mut self) -> Result<T, Error<T>> {
         let mut root = self.a.clone();
         self.root_mut(&mut root).and(Ok(root))
@@ -874,7 +874,8 @@ macro_rules! abs_lt_pos_neg { ($x: expr, $y: expr) => { $x < - $y } }
 impl<T, F, Term> Toms748<T, F, Term>
 where T: OrdField,
       F: FnMut(T) -> T,
-      Term: Terminate<T> {
+      Term: Terminate<T>
+{
     /// Use the Algorithm 748 to approximate a root of the function
     /// `f` on the interval \[`a`, `b`\] (see [`toms748`]).  Store
     /// this approximation in `root` and return an interval \[a,b\]
@@ -935,7 +936,7 @@ where T: OrdField,
                 // n = 3..
                 for _ in 2 .. self.maxiter {
                     // 4.2.3: (a, b, d, e) = (aₙ, bₙ, dₙ, eₙ)
-                    let mut c = Self::ipzero(a, b, d, e, fa, fb, fd, fe);
+                    let mut c = Self::ipzero([a, b, d, e], [fa, fb, fd, fe]);
                     if !Self::is_inside_interval(c, a, b) {
                         c = Self::newton_quadratic::<1>(a, b, d, fa, fb, fd);
                     };
@@ -953,7 +954,7 @@ where T: OrdField,
                 // (a, b, d) = (ãₙ, b̃ₙ, d̃ₙ)
                 bracket_copy!(a b $c d, fa fb fc fd, self, root, $lt0, $gt0);
                 // 4.2.5
-                let mut c = Self::ipzero(a, b, d, e, fa, fb, fd, fe);
+                let mut c = Self::ipzero([a, b, d, e], [fa, fb, fd, fe]);
                 if !Self::is_inside_interval(c, a, b) {
                     c = Self::newton_quadratic::<3>(a, b, d, fa, fb, fd);
                 };
@@ -983,9 +984,10 @@ where T: OrdField,
                     }
                 };
                 // 4.2.9 = 4.1.7: c = ĉₙ
-                if !(dist.twice() <= len) { // negated for the case dist is NaN
-                    c.assign_mid(&a, &b);
-                }
+                if matches!(dist.twice().partial_cmp(&len),
+                    Some(Ordering::Greater) | None) { // dist is NaN ?
+                        c.assign_mid(&a, &b);
+                    }
                 // 4.2.10 = 4.1.8: (a, b, d) = (âₙ, b̂ₙ, d̂ₙ)
                 let fc = (self.f)(c);
                 e = d; // save d̅ₙ and anticipate eₙ₊₁ = d̅ₙ
@@ -1065,7 +1067,8 @@ where T: OrdField,
     /// Compute IP(0), the value at 0 of the inverse cubic interporation.
     #[inline]
     #[must_use]
-    fn ipzero(a: T, b: T, c: T, d: T, fa: T, fb: T, fc: T, fd: T) -> T {
+    fn ipzero([a, b, c, d]: [T;4],
+              [fa, fb, fc, fd]: [T;4]) -> T {
         // See “J. Stoer and R. Bulirsch, Introduction to numerical
         // analysis, 3rd ed. New York: Springer, 2002”, p. 43.
         let a_b = (a - b) / (fb - fa);
@@ -1139,20 +1142,43 @@ where T: OrdFieldMut + 'a,
     Toms748Mut::new(f, a, b)
 }
 
+/// Workspace needed to run Toms 748 algorithm for non-Copy types.
+#[derive(Clone)]
+pub struct Toms748MutWorkspace<T> {
+    a: T, b: T, c: T, d: T, e: T,
+    fa: T, fb: T, fc: T, fd: T, fe: T,
+    t1: T, t2: T, t3: T, t4: T, t5: T,
+    dist_an_bn: T,
+}
+
+impl <T: Clone> Toms748MutWorkspace<T> {
+    /// Create a new workspace by cloning `v`.
+    pub fn new(v: &T) -> Self {
+        Self {
+            a: v.clone(), b: v.clone(), c: v.clone(), d: v.clone(),
+            e: v.clone(), fa: v.clone(), fb: v.clone(), fc: v.clone(),
+            fd: v.clone(), fe: v.clone(), t1: v.clone(), t2: v.clone(),
+            t3: v.clone(), t4: v.clone(), t5: v.clone(),
+            dist_an_bn: v.clone(),
+        }
+    }
+}
+
 new_root_finding_method!(
     toms748_mut,
     /// [`toms748_mut`] algorithm (for non-[`Copy`] types).
     Toms748Mut<'a,...>,
-    workspace, Option<&'a mut (T,T,T,T,T,T,T,T,T,T,T,T,T,T,T,T)>,
-    owned_workspace, Option<(T,T,T,T,T,T,T,T,T,T,T,T,T,T,T,T)>);
+    workspace, Option<&'a mut Toms748MutWorkspace<T>>,
+    owned_workspace, Option<Toms748MutWorkspace<T>>);
 
 impl<'a, T, F, Term> Toms748Mut<'a, T, F, Term>
 where T: OrdFieldMut,
-      Term: Terminate<T> {
+      Term: Terminate<T>
+{
     /// Provide variables that will be used as workspace when running
     /// the [`toms748_mut`] function.
     #[must_use]
-    pub fn work(mut self, w: &'a mut (T,T,T,T,T,T,T,T,T,T,T,T,T,T,T,T)) -> Self {
+    pub fn work(mut self, w: &'a mut Toms748MutWorkspace<T>) -> Self {
         self.workspace = Some(w);
         self
     }
@@ -1189,8 +1215,8 @@ macro_rules! abs_lt_pos_neg_mut {
 impl<'a, T, F, Term> Toms748Mut<'a, T, F, Term>
 where T: OrdFieldMut + 'a,
       F: FnMut(&mut T, &T),
-      Term: Terminate<T> {
-
+      Term: Terminate<T>
+{
     /// Return a root of the function `f` (see [`toms748_mut`]) or
     /// `Err(e)` to indicate that the function `f` returned a NaN
     /// value.
@@ -1234,30 +1260,22 @@ where T: OrdFieldMut + 'a,
     /// # } Ok(()) }
     /// ```
     pub fn root_mut(&mut self, root: &mut T)
-                    -> Result<(&T, &T), Error<T>> {
-        let (a, b, c, d, e, fa, fb, fc, fd, fe,
-             t1, t2, t3, t4, t5, dist_an_bn) = match &mut self.workspace {
-            None => {
-                if self.owned_workspace.is_none() {
-                    self.owned_workspace = Some((
-                        root.clone(), root.clone(), root.clone(), root.clone(),
-                        root.clone(), root.clone(), root.clone(), root.clone(),
-                        root.clone(), root.clone(), root.clone(), root.clone(),
-                        root.clone(), root.clone(), root.clone(), root.clone()
-                        ));
+                    -> Result<(&T, &T), Error<T>>
+    {
+        let Toms748MutWorkspace {
+            a, b, c, d, e,
+            fa, fb, fc, fd, fe,
+            t1, t2, t3, t4, t5,
+            dist_an_bn} = match &mut self.workspace {
+                None => {
+                    if self.owned_workspace.is_none() {
+                        self.owned_workspace = Some(
+                            Toms748MutWorkspace::new(root));
+                    }
+                    self.owned_workspace.as_mut().unwrap()
                 }
-                let tmp = self.owned_workspace.as_mut().unwrap();
-                (&mut tmp.0, &mut tmp.1, &mut tmp.2, &mut tmp.3,
-                 &mut tmp.4, &mut tmp.5, &mut tmp.6, &mut tmp.7,
-                 &mut tmp.8, &mut tmp.9, &mut tmp.10, &mut tmp.11,
-                 &mut tmp.12, &mut tmp.13, &mut tmp.14, &mut tmp.15)
-            }
-            Some(v) =>
-                (&mut v.0, &mut v.1, &mut v.2, &mut v.3,
-                 &mut v.4, &mut v.5, &mut v.6, &mut v.7,
-                 &mut v.8, &mut v.9, &mut v.10, &mut v.11,
-                 &mut v.12, &mut v.13, &mut v.14, &mut v.15)
-        };
+                Some(v) => v,
+            };
         if self.a <= self.b {
             a.assign(self.a);
             b.assign(self.b);
@@ -1286,16 +1304,16 @@ where T: OrdFieldMut + 'a,
                 bracket_mut!(a b c d, fa fb fc fd, self, root, $lt0, $gt0);
                 // 4.2.3: n = 2
                 Self::newton_quadratic::<1>(c, [t1, t2, t3, t4, t5],
-                                            a, b, d, fa, fb, fd);
+                                            [a, b, d], [fa, fb, fd]);
                 body!(step, $lt0, $gt0, $abs_lt);
                 // n = 3..
                 for _ in 2 .. self.maxiter {
                     // 4.2.3: (a, b, d, e) = (aₙ, bₙ, dₙ, eₙ)
                     Self::ipzero(c, [t1, t2, t3, t4],
-                                 a, b, d, e, fa, fb, fd, fe);
+                                 [a, b, d, e], [fa, fb, fd, fe]);
                     if !Self::is_inside_interval(&c, &a, &b) {
                         Self::newton_quadratic::<1>(c, [t1, t2, t3, t4, t5],
-                                                    a, b, d, fa, fb, fd);
+                                                    [a, b, d], [fa, fb, fd]);
                     };
                     body!(step, $lt0, $gt0, $abs_lt);
                 }
@@ -1311,10 +1329,11 @@ where T: OrdFieldMut + 'a,
                 // (a, b, d) = (ãₙ, b̃ₙ, d̃ₙ)
                 bracket_mut!(a b c d, fa fb fc fd, self, root, $lt0, $gt0);
                 // 4.2.5
-                Self::ipzero(c, [t1, t2, t3, t4], a, b, d, e, fa, fb, fd, fe);
+                Self::ipzero(c, [t1, t2, t3, t4],
+                             [a, b, d, e], [fa, fb, fd, fe]);
                 if !Self::is_inside_interval(c, a, b) {
                     Self::newton_quadratic::<3>(c, [t1, t2, t3, t4, t5],
-                                                a, b, d, fa, fb, fd);
+                                                [a, b, d], [fa, fb, fd]);
                 };
                 // 4.2.6: (a, b, d) = (a̅ₙ, b̅ₙ, d̅ₙ)
                 (self.f)(fc, c);
@@ -1343,9 +1362,10 @@ where T: OrdFieldMut + 'a,
                 };
                 // 4.2.9 = 4.1.7: c = ĉₙ
                 t1.twice(); // t1 = 2|uₙ - c̅ₙ|
-                if !(t1 <= t2) { // Recall t2 = b - a > 0
-                    c.assign_mid(&a, &b);
-                }
+                if matches!(t1.partial_cmp(&t2),
+                    Some(Ordering::Greater) | None) { // Recall t2 = b - a > 0
+                        c.assign_mid(&a, &b);
+                    }
                 // 4.2.10 = 4.1.8: (a, b, d) = (âₙ, b̂ₙ, d̂ₙ)
                 (self.f)(fc, c);
                 e.assign(d); // save d̅ₙ and anticipate eₙ₊₁ = d̅ₙ
@@ -1387,8 +1407,11 @@ where T: OrdFieldMut + 'a,
     /// interpolation polynomial on (x, f(x)) with x ∈ {a, b, d}.
     #[inline]
     fn newton_quadratic<const K: u8>(
-        r: &mut T, [fab, fabd, t1, den, p]: [&mut T; 5],
-        a: &T, b: &T, d: &T,  fa: &T, fb: &T, fd: &T) {
+        r: &mut T,
+        [fab, fabd, t1, den, p]: [&mut T; 5],
+        [a, b, d]: [&T; 3],
+        [fa, fb, fd]: [&T; 3]
+    ) {
         fab.assign(fb);  *fab -= fa; // fb - fa
         t1.assign(b);  *t1 -= a; // b - a
         *fab /= t1; // fab = (fa - fb) / (a - b)
@@ -1445,9 +1468,11 @@ where T: OrdFieldMut + 'a,
 
     /// Compute IP(0), the value at 0 of the inverse cubic interporation.
     #[inline]
-    fn ipzero(r: &mut T, [t1, t2, t3, t4]: [&mut T; 4],
-              a: &T, b: &T, c: &T, d: &T,
-              fa: &T, fb: &T, fc: &T, fd: &T) {
+    fn ipzero(
+        r: &mut T, [t1, t2, t3, t4]: [&mut T; 4],
+        [a, b, c, d]: [&T; 4],
+        [fa, fb, fc, fd]: [&T; 4],
+    ) {
         // See the implementation of `ipzero` for Copy types.
         r.assign(a);  *r -= b;
         t1.assign(fb);  *t1 -= fa;  *r /= t1; // r = (a - b) / (fb - fa)
