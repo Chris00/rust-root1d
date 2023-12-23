@@ -257,20 +257,33 @@ macro_rules! new_root_finding_method {
             /// Private constructor called by $fun with more constraints.
             #[must_use]
             fn new(f: F, a: $(&$l)? T, b: $(&$l)? T) -> Self {
-                if !a.is_finite() {
-                    panic!("root1d::{}: a = {:?} must be finite",
-                           stringify!($fun), a)
-                }
-                if !b.is_finite() {
-                    panic!("root1d::{}: b = {:?} must be finite",
-                           stringify!($fun), b)
-                }
                 $struct { f,  a,  b,
                           t: T::DefaultTerminate::default(),
                           maxiter: 100,
                           maxiter_err: false,
                           $($field: None,)*  // All extra fields are options
                 }
+            }
+        }
+
+        impl <$($l,)? T, F, Term> $struct<$($l,)? T, F, Term>
+        where T: Bisectable,
+              Term: Terminate<T>
+        {
+            /// Check that `a` and `b` are finite.
+            #[inline]
+            fn check_interval_bounds(&self) -> Result<(), Error<T>> {
+                if !self.a.is_finite() {
+                    return Err(Error::NotFinite {
+                        x: self.a.clone(), fx: self.a.clone(),
+                    })
+                }
+                if !self.b.is_finite() {
+                    return Err(Error::NotFinite {
+                        x: self.b.clone(), fx: self.b.clone(),
+                    })
+                }
+                Ok(())
             }
         }
 
@@ -472,6 +485,7 @@ where T: Bisectable + Copy,
     /// interval still holds but it is not guaranteed that `f`
     /// possesses a root in it.
     pub fn root_mut(&mut self, root: &mut T) -> Result<(T,T), Error<T>> {
+        Self::check_interval_bounds(self)?;
         let mut a;
         let mut b;
         if self.a <= self.b {
@@ -644,6 +658,7 @@ where T: Bisectable,
         // If some workspace if given, use it even if internal storage
         // is available because it may have different, say, precision
         // characteristics.
+        Self::check_interval_bounds(self)?;
         let (a, b, fa, fb, fx) = match &mut self.workspace {
             None => {
                 if self.owned_workspace.is_none() {
@@ -894,6 +909,7 @@ where T: OrdField,
     /// to achieve a desired precision.  This is particularly
     /// interesting if the function is costly to evaluate.
     pub fn root_mut(&mut self, root: &mut T) -> Result<(T,T), Error<T>> {
+        Self::check_interval_bounds(self)?;
         let mut a;
         let mut b;
         if self.a <= self.b {
@@ -1255,9 +1271,9 @@ where T: OrdFieldMut + 'a,
     /// assert!(a <= &x && &x <= b);
     /// # } Ok(()) }
     /// ```
-    pub fn root_mut(&mut self, root: &mut T)
-                    -> Result<(&T, &T), Error<T>>
+    pub fn root_mut(&mut self, root: &mut T) -> Result<(&T, &T), Error<T>>
     {
+        Self::check_interval_bounds(self)?;
         let Toms748MutWorkspace {
             a, b, c, d, e,
             fa, fb, fc, fd, fe,
