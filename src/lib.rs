@@ -40,7 +40,7 @@
 //! [`toms748`] (resp. [`toms748_mut`]), you must also implement the
 //! trait [`OrdField`] (resp. [`OrdFieldMut`]).
 
-#![feature(never_type)]
+#![cfg_attr(feature = "nightly", feature(never_type))]
 
 use std::{
     cmp::Ordering,
@@ -54,9 +54,15 @@ use std::{
     result::Result,
 };
 
+#[cfg(feature = "nightly")]
+pub type NoError = !;
+#[cfg(not(feature = "nightly"))]
+#[derive(Debug)]
+pub enum NoError {}
+
 /// Errors that may be returned by the root finding methods.
 #[derive(Debug)]
-pub enum Error<T, E = !> {
+pub enum Error<T, E = NoError> {
     /// Error indicating that the function evaluated at `x` returned
     /// the non-finite value `fx`.
     NotFinite { x: T, fx: T },
@@ -106,10 +112,10 @@ pub trait FloatOrError<T> {
 
 macro_rules! impl_float_or_error { ($t: ty) => {
     impl FloatOrError<$t> for $t {
-        type Error = !;
+        type Error = NoError;
 
         #[inline]
-        fn to_result(self) -> Result<$t, !> { Ok(self) }
+        fn to_result(self) -> Result<$t, NoError> { Ok(self) }
     }
     impl<E> FloatOrError<$t> for Result<$t, E> {
         type Error = E;
@@ -140,7 +146,7 @@ pub trait UnitOrError {
 }
 
 impl UnitOrError for () {
-    type Error = !;
+    type Error = NoError;
 
     #[inline]
     fn to_result(self) -> Result<(), Self::Error> { Ok(()) }
@@ -1925,10 +1931,10 @@ macro_rules! assert_approx_eq {
 mod tests {
     use std::{fmt::{Debug, Display},
               f64::consts::PI};
-    use crate as root1d;
+    use crate::{self as root1d, NoError};
     //use test::bench::Bencher;
 
-    type R<T> = Result<(), root1d::Error<T, !>>;
+    type R<T> = Result<(), root1d::Error<T, NoError>>;
 
     #[test]
     fn error_is_static() {
@@ -1936,7 +1942,7 @@ mod tests {
         fn _f<T>(x: T) -> Result<(), Box<dyn std::error::Error + 'static>>
         where T: Debug + Display + 'static + Clone {
             let fx = x.clone();
-            Err(Box::new(root1d::Error::<_, !>::NotFinite{x, fx}))
+            Err(Box::new(root1d::Error::<_, NoError>::NotFinite{x, fx}))
         }
     }
 
@@ -1950,24 +1956,23 @@ mod tests {
         Ok(())
     }
 
+    type Toms = root1d::Toms748::<
+        f64, fn(f64) -> f64, root1d::Tol<f64>, NoError>;
+
     #[test]
     fn test_ipzero() {
         // y³ + 3 = x
-        let r = root1d::Toms748::<f64, fn(f64) -> f64, root1d::Tol<f64>, !>
-            ::ipzero([-5., 2., 4., 11.],
-                     [-2., -1., 1., 2.]);
+        let r = Toms::ipzero([-5., 2., 4., 11.], [-2., -1., 1., 2.]);
         assert_eq!(r, 3.);
     }
 
     #[test]
     fn test_newton_quadratic() {
-        let r = root1d::Toms748::<f64, fn(f64) -> f64, root1d::Tol<f64>, !>
-            ::newton_quadratic::<0>(0.,  2., 1.,
-                                    -1., 3., 0.);
+        let r = Toms::newton_quadratic::<0>(0.,  2., 1.,
+                                             -1., 3., 0.);
         assert_eq!(r, 1.25);
-        let r = root1d::Toms748::<f64, fn(f64) -> f64, root1d::Tol<f64>, !>
-            ::newton_quadratic::<1>(0.,  2., 1.,
-                                    -1., 3., 0.);
+        let r = Toms::newton_quadratic::<1>(0.,  2., 1.,
+                                               -1., 3., 0.);
         assert_eq!(r, 41. / 40.);
     }
 

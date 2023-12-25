@@ -61,6 +61,8 @@ jobs:
       shell: bash
     - run: rustup target add ${{ matrix.target }}
     - run: cargo build
+    - run: cargo test --features rug
+      if: startsWith(matrix.os, 'ubuntu') && matrix.rust != 'nightly'
     - run: cargo test --all-features
-      if: startsWith(matrix.os, 'ubuntu')
+      if: startsWith(matrix.os, 'ubuntu') && matrix.rust == 'nightly'
     - run: cargo run --example speed_toms748

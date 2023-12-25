@@ -18,6 +18,9 @@ default-features = false
 features = ["float", "rational"]
 optional = true
 
+[features]
+nightly = []
+
 [dev-dependencies]
 criterion = "0.3.5"
 roots = "0.0.7"
