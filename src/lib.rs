@@ -55,9 +55,11 @@ use std::{
 };
 
 #[cfg(feature = "nightly")]
+/// Type indicating that no error is raised by the function.
 pub type NoError = !;
 #[cfg(not(feature = "nightly"))]
 #[derive(Debug)]
+/// Type indicating that no error is raised by the function.
 pub enum NoError {}
 
 /// Errors that may be returned by the root finding methods.
