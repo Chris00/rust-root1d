@@ -42,13 +42,17 @@
 
 #![feature(never_type)]
 
-use std::{cmp::Ordering,
-          fmt::{self, Debug, Display, Formatter},
-          mem::swap,
-          ops::{Neg, Add, Sub, Mul, Div,
-                AddAssign, SubAssign, MulAssign, DivAssign},
-          marker::PhantomData,
-          result::Result};
+use std::{
+    cmp::Ordering,
+    fmt::{self, Debug, Display, Formatter},
+    mem::swap,
+    ops::{
+        Neg, Add, Sub, Mul, Div,
+        AddAssign, SubAssign, MulAssign, DivAssign
+    },
+    marker::PhantomData,
+    result::Result,
+};
 
 /// Errors that may be returned by the root finding methods.
 #[derive(Debug)]
@@ -156,7 +160,7 @@ fn eval_unit_result<T, F, R>(
 where
     T: Clone,
     F: FnMut(&mut T, &T) -> R,
-    R: UnitOrError
+    R: UnitOrError,
 {
     f(y, x).to_result()
         .map_err(|err| Error::Fun {
@@ -195,8 +199,10 @@ pub trait SetTolerances<U> {
 /// root-finding algorithm is applied at the bounds `a` and `b`
 /// respectively.
 impl<T,F> Terminate<T> for F
-where F: FnMut(&T, &T, &T, &T) -> bool,
-      T: Bisectable {
+where
+    F: FnMut(&T, &T, &T, &T) -> bool,
+    T: Bisectable,
+{
     fn stop(&mut self, a: &T, b: &T, fa: &T, fb: &T) -> bool {
         self(a, b, fa, fb)
     }
@@ -217,7 +223,8 @@ pub struct Tol<U> {
     /// Relative tolerance.
     pub rtol: U,
     /// Absolute tolerance.
-    pub atol: U }
+    pub atol: U,
+}
 
 macro_rules! impl_traits_tol_fXX {
     ($t: ty, $rtol: expr, $atol: expr) => {
@@ -324,117 +331,121 @@ macro_rules! new_root_finding_method {
      // The structure to hold the options (and other fields).
      $(#[$doc: meta])* $struct: ident <$($l: lifetime,)? ...>,
      $($field: ident, $t: ty),*) => {
-        $(#[$doc])*
-        pub struct $struct<$($l,)? T, F, Term, E>
-        where Term: Terminate<T> {
-            f: F,
-            a: $(&$l)? T,  // `a` and `b` are the bounds of the interval.
-            b: $(&$l)? T,
-            error: PhantomData<E>, // Error that `f` might return
-            t: Term,  // Termination criterion
-            maxiter: usize,
-            maxiter_err: bool,
-            $($field: $t,)*
-        }
+         $(#[$doc])*
+         pub struct $struct<$($l,)? T, F, Term, E>
+         where Term: Terminate<T> {
+             f: F,
+             a: $(&$l)? T,  // `a` and `b` are the bounds of the interval.
+             b: $(&$l)? T,
+             error: PhantomData<E>, // Error that `f` might return
+             t: Term,  // Termination criterion
+             maxiter: usize,
+             maxiter_err: bool,
+             $($field: $t,)*
+         }
 
-        impl <$($l,)? T, F, E> $struct<$($l,)? T, F, T::DefaultTerminate, E>
-        where T: Bisectable {
-            /// Private constructor called by $fun with more constraints.
-            #[must_use]
-            fn new(f: F, a: $(&$l)? T, b: $(&$l)? T) -> Self {
-                $struct { f,  a,  b,
-                          error: PhantomData,
-                          t: T::DefaultTerminate::default(),
-                          maxiter: 100,
-                          maxiter_err: false,
-                          $($field: None,)*  // All extra fields are options
-                }
-            }
-        }
+         impl <$($l,)? T, F, E> $struct<$($l,)? T, F, T::DefaultTerminate, E>
+         where T: Bisectable {
+             /// Private constructor called by $fun with more constraints.
+             #[must_use]
+             fn new(f: F, a: $(&$l)? T, b: $(&$l)? T) -> Self {
+                 $struct {
+                     f,  a,  b,
+                     error: PhantomData,
+                     t: T::DefaultTerminate::default(),
+                     maxiter: 100,
+                     maxiter_err: false,
+                     $($field: None,)*  // All extra fields are options
+                 }
+             }
+         }
 
-        impl <$($l,)? T, F, Term, E> $struct<$($l,)? T, F, Term, E>
-        where T: Bisectable,
-              Term: Terminate<T>
-        {
-            /// Check that `a` and `b` are finite.
-            #[inline]
-            fn check_interval_bounds(&self) -> Result<(), Error<T, E>> {
-                if !self.a.is_finite() {
-                    return Err(Error::NotFinite {
-                        x: self.a.clone(), fx: self.a.clone(),
-                    })
-                }
-                if !self.b.is_finite() {
-                    return Err(Error::NotFinite {
-                        x: self.b.clone(), fx: self.b.clone(),
-                    })
-                }
-                Ok(())
-            }
-        }
+         impl <$($l,)? T, F, Term, E> $struct<$($l,)? T, F, Term, E>
+         where
+             T: Bisectable,
+             Term: Terminate<T>,
+         {
+             /// Check that `a` and `b` are finite.
+             #[inline]
+             fn check_interval_bounds(&self) -> Result<(), Error<T, E>> {
+                 if !self.a.is_finite() {
+                     return Err(Error::NotFinite {
+                         x: self.a.clone(), fx: self.a.clone(),
+                     })
+                 }
+                 if !self.b.is_finite() {
+                     return Err(Error::NotFinite {
+                         x: self.b.clone(), fx: self.b.clone(),
+                     })
+                 }
+                 Ok(())
+             }
+         }
 
-        impl<$($l,)? T, F, Term, E> $struct<$($l,)? T, F, Term, E>
-        where Term: Terminate<T> {
-            /// Set the maximum number of iterations.
-            ///
-            /// If `n`, it is interpreted as “unlimited” (actually
-            /// [`usize::MAX`]).
-            pub fn maxiter(mut self, n: usize) -> Self {
-                if n == 0 {
-                    self.maxiter = usize::MAX;
-                } else {
-                    self.maxiter = n;
-                }
-                self
-            }
+         impl<$($l,)? T, F, Term, E> $struct<$($l,)? T, F, Term, E>
+         where Term: Terminate<T> {
+             /// Set the maximum number of iterations.
+             ///
+             /// If `n`, it is interpreted as “unlimited” (actually
+             /// [`usize::MAX`]).
+             pub fn maxiter(mut self, n: usize) -> Self {
+                 if n == 0 {
+                     self.maxiter = usize::MAX;
+                 } else {
+                     self.maxiter = n;
+                 }
+                 self
+             }
 
-            /// If `err` is `true` report the reach of the maximum number
-            /// of iterations as an error.  Otherwise, just stop working
-            /// and provide the estimate of the root after the maximum
-            /// number of iterations.
-            pub fn maxiter_err(mut self, err: bool) -> Self {
-                self.maxiter_err = err;
-                self
-            }
+             /// If `err` is `true` report the reach of the maximum number
+             /// of iterations as an error.  Otherwise, just stop working
+             /// and provide the estimate of the root after the maximum
+             /// number of iterations.
+             pub fn maxiter_err(mut self, err: bool) -> Self {
+                 self.maxiter_err = err;
+                 self
+             }
 
-            /// Change the termination criterion to `t`.
-            ///
-            /// You can use a closure `FnMut(&T, &T) -> bool` as the
-            /// termination criterion `t`.
-            pub fn terminate<Tr>(self, t: Tr) -> $struct<$($l,)? T, F, Tr, E>
-            where Tr: Terminate<T> {
-                // FIXME: type changing struct updating is experimental
-                // $s { t, .. self }
-                $struct { t,
-                          f: self.f,  a: self.a,  b: self.b,
-                          error: self.error,
-                          maxiter: self.maxiter,
-                          maxiter_err: self.maxiter_err,
-                          $( $field: self.$field, )* }
-            }
+             /// Change the termination criterion to `t`.
+             ///
+             /// You can use a closure `FnMut(&T, &T) -> bool` as the
+             /// termination criterion `t`.
+             pub fn terminate<Tr>(self, t: Tr) -> $struct<$($l,)? T, F, Tr, E>
+             where Tr: Terminate<T> {
+                 // FIXME: type changing struct updating is experimental
+                 // $s { t, .. self }
+                 $struct {
+                     t,
+                     f: self.f,  a: self.a,  b: self.b,
+                     error: self.error,
+                     maxiter: self.maxiter,
+                     maxiter_err: self.maxiter_err,
+                     $( $field: self.$field, )*
+                 }
+             }
 
-            /// Set the the relative tolerance termination criterion (that
-            /// implements [`SetTolerances`]), leaving unchanged the value
-            /// of the absolute tolerance.
-            ///
-            /// Set the default value if `rtol` is ≤ 0.
-            pub fn rtol<U>(mut self, rtol: U) -> Self
-            where Term: SetTolerances<U> {
-                self.t.set_rtol(rtol);
-                self
-            }
-            /// Set the the absolute tolerance termination criterion (that
-            /// implements [`SetTolerances`]), leaving unchanged the value
-            /// of the relative tolerance.
-            ///
-            /// Set the default value if `atol` is < 0.
-            pub fn atol<U>(mut self, atol: U) -> Self
-            where Term: SetTolerances<U> {
-                self.t.set_atol(atol);
-                self
-            }
-        }
-    }
+             /// Set the the relative tolerance termination criterion (that
+             /// implements [`SetTolerances`]), leaving unchanged the value
+             /// of the absolute tolerance.
+             ///
+             /// Set the default value if `rtol` is ≤ 0.
+             pub fn rtol<U>(mut self, rtol: U) -> Self
+             where Term: SetTolerances<U> {
+                 self.t.set_rtol(rtol);
+                 self
+             }
+             /// Set the the absolute tolerance termination criterion (that
+             /// implements [`SetTolerances`]), leaving unchanged the value
+             /// of the relative tolerance.
+             ///
+             /// Set the default value if `atol` is < 0.
+             pub fn atol<U>(mut self, atol: U) -> Self
+             where Term: SetTolerances<U> {
+                 self.t.set_atol(atol);
+                 self
+             }
+         }
+     }
 }
 
 ////////////////////////////////////////////////////////////////////////
@@ -508,9 +519,11 @@ macro_rules! new_root_finding_method {
 
 pub fn bisect<T, F, R>(
     f: F, a: T, b: T) -> Bisect<T, F, T::DefaultTerminate, R::Error>
-where T: Bisectable,
-      F: FnMut(T) -> R,
-      R: FloatOrError<T> {
+where
+    T: Bisectable,
+    F: FnMut(T) -> R,
+    R: FloatOrError<T>
+{
     Bisect::new(f, a, b)
 }
 
@@ -569,10 +582,11 @@ where T: Bisectable {
 }
 
 impl<T, F, R, Term> Bisect<T, F, Term, R::Error>
-where T: Bisectable + Copy,
-      F: FnMut(T) -> R,
-      R: FloatOrError<T>,
-      Term: Terminate<T>
+where
+    T: Bisectable + Copy,
+    F: FnMut(T) -> R,
+    R: FloatOrError<T>,
+    Term: Terminate<T>
 {
     /// Return `Ok(r)` where `r` is an approximate root of the
     /// function (provided that it is continuous) or `Err` indicating
@@ -679,9 +693,11 @@ where T: Bisectable + Copy,
 pub fn bisect_mut<'a, T, F, R>(
     f: F, a: &'a T, b: &'a T
 ) -> BisectMut<'a, T, F, T::DefaultTerminate, R::Error>
-where T: Bisectable,
-      F: FnMut(&mut T, &T) -> R,
-      R: UnitOrError {
+where
+    T: Bisectable,
+    F: FnMut(&mut T, &T) -> R,
+    R: UnitOrError
+{
     BisectMut::new(f, a, b)
 }
 
@@ -726,9 +742,11 @@ fn check_sign_mut<T,F, R>(
     a: &T, b: &T,
     f: &mut F, fa: &mut T, fb: &mut T
 ) -> Result<SignChange, Error<T, R::Error>>
-where T: Bisectable,
-      F: FnMut(&mut T, &T) -> R,
-      R: UnitOrError {
+where
+    T: Bisectable,
+    F: FnMut(&mut T, &T) -> R,
+    R: UnitOrError
+{
     use SignChange::*;
     f(fa, a);
     if fa.lt0() {
@@ -763,10 +781,11 @@ where T: Bisectable,
 }
 
 impl<'a, T, F, R, Term> BisectMut<'a, T, F, Term, R::Error>
-where T: Bisectable,
-      F: FnMut(&mut T, &T) -> R,
-      R: UnitOrError,
-      Term: Terminate<T>
+where
+    T: Bisectable,
+    F: FnMut(&mut T, &T) -> R,
+    R: UnitOrError,
+    Term: Terminate<T>
 {
     /// Set `root` to a root of the function `f` (see [`bisect_mut`]).
     /// Return the final bracket if all went well or an error to
@@ -887,21 +906,24 @@ where T: Bisectable,
 
 /// Requirements on the type `T` to be able to use [`toms748`]
 /// algorithm.
-pub trait OrdField: Bisectable + Copy
+pub trait OrdField:
+    Bisectable
+    + Copy
     + Neg<Output = Self>
     + Add<Self, Output = Self>
     + Sub<Self, Output = Self>
     + Mul<Self, Output = Self>
-    + Div<Self, Output = Self> {
-        /// Return `true` if `self` is the number 0.
-        fn is_zero(self) -> bool;
+    + Div<Self, Output = Self>
+{
+    /// Return `true` if `self` is the number 0.
+    fn is_zero(self) -> bool;
 
-        /// Return twice the value of `self`.
-        fn twice(self) -> Self;
+    /// Return twice the value of `self`.
+    fn twice(self) -> Self;
 
-        /// Return the value of `self` divided by 64.
-        fn div64(self) -> Self;
-    }
+    /// Return the value of `self` divided by 64.
+    fn div64(self) -> Self;
+}
 
 macro_rules! impl_ordfield_fXX {
     ($t: ty) => {
@@ -992,9 +1014,11 @@ impl_ordfield_fXX!(f64);
 /// [10.1145/210089.210111](https://dx.doi.org/10.1145/210089.210111).
 pub fn toms748<T, F, R>(
     f: F, a: T, b: T) -> Toms748<T, F, T::DefaultTerminate, R::Error>
-where T: OrdField,
-      F: FnMut(T) -> R,
-      R: FloatOrError<T> {
+where
+    T: OrdField,
+    F: FnMut(T) -> R,
+    R: FloatOrError<T>
+{
     Toms748::new(f, a, b)
 }
 
@@ -1051,10 +1075,11 @@ macro_rules! abs_lt_neg_pos { ($x: expr, $y: expr) => { - $x < $y } }
 macro_rules! abs_lt_pos_neg { ($x: expr, $y: expr) => { $x < - $y } }
 
 impl<T, F, R, Term> Toms748<T, F, Term, R::Error>
-where T: OrdField,
-      F: FnMut(T) -> R,
-      R: FloatOrError<T>,
-      Term: Terminate<T>
+where
+    T: OrdField,
+    F: FnMut(T) -> R,
+    R: FloatOrError<T>,
+    Term: Terminate<T>,
 {
     /// Use the Algorithm 748 to approximate a root of the function
     /// `f` on the interval \[`a`, `b`\] (see [`toms748`]).  Store
@@ -1360,8 +1385,9 @@ new_root_finding_method!(
     owned_workspace, Option<Toms748MutWorkspace<T>>);
 
 impl<'a, T, F, Term, E> Toms748Mut<'a, T, F, Term, E>
-where T: OrdFieldMut,
-      Term: Terminate<T>
+where
+    T: OrdFieldMut,
+    Term: Terminate<T>
 {
     /// Provide variables that will be used as workspace when running
     /// the [`toms748_mut`] function.
@@ -1401,10 +1427,11 @@ macro_rules! abs_lt_pos_neg_mut {
 }
 
 impl<'a, T, F, R, Term> Toms748Mut<'a, T, F, Term, R::Error>
-where T: OrdFieldMut + 'a,
-      F: FnMut(&mut T, &T) -> R,
-      R: UnitOrError,
-      Term: Terminate<T>
+where
+    T: OrdFieldMut + 'a,
+    F: FnMut(&mut T, &T) -> R,
+    R: UnitOrError,
+    Term: Terminate<T>
 {
     /// Return a root of the function `f` (see [`toms748_mut`]) or
     /// `Err(e)` to indicate that the function `f` returned a NaN
