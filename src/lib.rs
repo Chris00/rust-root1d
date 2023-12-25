@@ -18,8 +18,8 @@
 //! [`root`][Toms748::root] and [`root_mut`][Toms748::root_mut]).
 //!
 //! ```
-//! use root1d::toms748;
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! use root1d::toms748;
 //! assert!((toms748(|x| x*x - 2., 0., 2.).root()?
 //!          - 2f64.sqrt()).abs() < 1e-12);
 //! # Ok(()) }
@@ -40,19 +40,24 @@
 //! [`toms748`] (resp. [`toms748_mut`]), you must also implement the
 //! trait [`OrdField`] (resp. [`OrdFieldMut`]).
 
+#![feature(never_type)]
+
 use std::{cmp::Ordering,
           fmt::{self, Debug, Display, Formatter},
           mem::swap,
           ops::{Neg, Add, Sub, Mul, Div,
                 AddAssign, SubAssign, MulAssign, DivAssign},
+          marker::PhantomData,
           result::Result};
 
 /// Errors that may be returned by the root finding methods.
 #[derive(Debug)]
-pub enum Error<T> {
+pub enum Error<T, E = !> {
     /// Error indicating that the function evaluated at `x` returned
     /// the non-finite value `fx`.
     NotFinite { x: T, fx: T },
+    /// Error returned by the function evaluated at `x`.
+    Fun { x: T, err: E },
     /// Report that the maximum number of iterations has been reached,
     /// when option `maxiter_err` is turned on.  The argument is the
     /// current estimate of the root at that moment.
@@ -61,12 +66,16 @@ pub enum Error<T> {
     /// interval \[a, b\].
     NoSignChange { a: T, fa: T, b: T, fb: T },
 }
-impl<T: Display> Display for Error<T> {
+impl<T: Display, E: Debug> Display for Error<T, E> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Error::NotFinite { x, fx } => {
                 write!(f, "evaluating the function at {} yields {} which is \
                            not finite", x, fx)
+            }
+            Error::Fun { x, err } => {
+                write!(f, "evaluating the function at {} yields the error \
+                          {:?}", x, err)
             }
             Error::MaxIter => {
                 write!(f, "maximum number of iterations reached")
@@ -78,7 +87,81 @@ impl<T: Display> Display for Error<T> {
     }
 }
 
-impl<T: Debug + Display> std::error::Error for Error<T> {}
+impl<T: Debug + Display, E: Debug> std::error::Error for Error<T, E> {}
+
+////////////////////////////////////////////////////////////////////////
+//
+// Error returning functions
+
+/// A float type or a Result type for floats.  This is intended for
+/// copy types.
+pub trait FloatOrError<T> {
+    type Error;
+    fn to_result(self) -> Result<T, Self::Error>;
+}
+
+macro_rules! impl_float_or_error { ($t: ty) => {
+    impl FloatOrError<$t> for $t {
+        type Error = !;
+
+        #[inline]
+        fn to_result(self) -> Result<$t, !> { Ok(self) }
+    }
+    impl<E> FloatOrError<$t> for Result<$t, E> {
+        type Error = E;
+
+        #[inline]
+        fn to_result(self) -> Result<$t, E> { self }
+    }
+}}
+
+impl_float_or_error!(f64);
+impl_float_or_error!(f32);
+
+#[inline]
+fn eval_float_result<T, F, R>(mut f: F, x: T) -> Result<T, Error<T, R::Error>>
+where
+    T: Copy,
+    F: FnMut(T) -> R,
+    R: FloatOrError<T>,
+{
+    f(x).to_result()
+        .map_err(|err| Error::Fun{ x, err })
+}
+
+/// A unit type or a `Result<(), _>`.
+pub trait UnitOrError {
+    type Error;
+    fn to_result(self) -> Result<(), Self::Error>;
+}
+
+impl UnitOrError for () {
+    type Error = !;
+
+    #[inline]
+    fn to_result(self) -> Result<(), Self::Error> { Ok(()) }
+}
+
+impl<E> UnitOrError for Result<(), E> {
+    type Error = E;
+
+    #[inline]
+    fn to_result(self) -> Result<(), E> { self }
+}
+
+#[inline]
+fn eval_unit_result<T, F, R>(
+    mut f: F, y: &mut T, x: &T
+) -> Result<(), Error<T, R::Error>>
+where
+    T: Clone,
+    F: FnMut(&mut T, &T) -> R,
+    R: UnitOrError
+{
+    f(y, x).to_result()
+        .map_err(|err| Error::Fun {
+            x: x.clone(), err })
+}
 
 ////////////////////////////////////////////////////////////////////////
 //
@@ -228,7 +311,6 @@ macro_rules! impl_bisectable_fXX {
 impl_bisectable_fXX!(f64);
 impl_bisectable_fXX!(f32);
 
-
 ////////////////////////////////////////////////////////////////////////
 //
 // Common structure definition for root-finding methods
@@ -243,23 +325,25 @@ macro_rules! new_root_finding_method {
      $(#[$doc: meta])* $struct: ident <$($l: lifetime,)? ...>,
      $($field: ident, $t: ty),*) => {
         $(#[$doc])*
-        pub struct $struct<$($l,)? T, F, Term>
+        pub struct $struct<$($l,)? T, F, Term, E>
         where Term: Terminate<T> {
             f: F,
             a: $(&$l)? T,  // `a` and `b` are the bounds of the interval.
             b: $(&$l)? T,
+            error: PhantomData<E>, // Error that `f` might return
             t: Term,  // Termination criterion
             maxiter: usize,
             maxiter_err: bool,
             $($field: $t,)*
         }
 
-        impl <$($l,)? T, F> $struct<$($l,)? T, F, T::DefaultTerminate>
+        impl <$($l,)? T, F, E> $struct<$($l,)? T, F, T::DefaultTerminate, E>
         where T: Bisectable {
             /// Private constructor called by $fun with more constraints.
             #[must_use]
             fn new(f: F, a: $(&$l)? T, b: $(&$l)? T) -> Self {
                 $struct { f,  a,  b,
+                          error: PhantomData,
                           t: T::DefaultTerminate::default(),
                           maxiter: 100,
                           maxiter_err: false,
@@ -268,13 +352,13 @@ macro_rules! new_root_finding_method {
             }
         }
 
-        impl <$($l,)? T, F, Term> $struct<$($l,)? T, F, Term>
+        impl <$($l,)? T, F, Term, E> $struct<$($l,)? T, F, Term, E>
         where T: Bisectable,
               Term: Terminate<T>
         {
             /// Check that `a` and `b` are finite.
             #[inline]
-            fn check_interval_bounds(&self) -> Result<(), Error<T>> {
+            fn check_interval_bounds(&self) -> Result<(), Error<T, E>> {
                 if !self.a.is_finite() {
                     return Err(Error::NotFinite {
                         x: self.a.clone(), fx: self.a.clone(),
@@ -289,7 +373,7 @@ macro_rules! new_root_finding_method {
             }
         }
 
-        impl<$($l,)? T, F, Term> $struct<$($l,)? T, F, Term>
+        impl<$($l,)? T, F, Term, E> $struct<$($l,)? T, F, Term, E>
         where Term: Terminate<T> {
             /// Set the maximum number of iterations.
             ///
@@ -317,12 +401,13 @@ macro_rules! new_root_finding_method {
             ///
             /// You can use a closure `FnMut(&T, &T) -> bool` as the
             /// termination criterion `t`.
-            pub fn terminate<Tr>(self, t: Tr) -> $struct<$($l,)? T, F, Tr>
+            pub fn terminate<Tr>(self, t: Tr) -> $struct<$($l,)? T, F, Tr, E>
             where Tr: Terminate<T> {
                 // FIXME: type changing struct updating is experimental
                 // $s { t, .. self }
                 $struct { t,
                           f: self.f,  a: self.a,  b: self.b,
+                          error: self.error,
                           maxiter: self.maxiter,
                           maxiter_err: self.maxiter_err,
                           $( $field: self.$field, )* }
@@ -385,19 +470,47 @@ macro_rules! new_root_finding_method {
 /// [`Bisectable`] is implemented for the type `T` (which also
 /// provides the default termination criteria).
 ///
-/// # Example
+/// # Examples
 ///
 /// ```
-/// use root1d::bisect;
 /// # use std::error::Error;
 /// # fn main() -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
+/// use root1d::bisect;
 /// assert!((bisect(|x| x*x - 2., 0., 2.).atol(0.).root()?
 ///          - 2f64.sqrt()).abs() < 1e-15);
 /// # Ok(()) }
 /// ```
-pub fn bisect<T, F>(f: F, a: T, b: T) -> Bisect<T, F, T::DefaultTerminate>
+///
+/// The function we apply the bisection to may also return an error in
+/// which case the bisection stops and returns the error [`Error::Fun`].
+///
+/// ```
+/// # use std::error::Error;
+/// # fn main() -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
+/// use root1d::bisect;
+/// let f = |a: f64| bisect(|x| x*x - a, 0., a.max(1.)).root();
+/// assert!((bisect(|a| f(a).and_then(|fa| Ok(fa - 2.)), 1., 5.).root()?
+///         - 4f64).abs() < 1e-15);
+/// # Ok(()) }
+/// ```
+///
+/// If you want to use `?` to return errors in the second closure, its
+/// error type must be known and you must help Rust with a type annotation.
+///
+/// ```
+/// # fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+/// use root1d::{bisect, Error};
+/// let f = |a: f64| bisect(|x| x*x - a, 0., a.max(1.)).root();
+/// let g = |a| -> Result<_, Error<_>> { Ok(f(a)? - 2.) };
+/// assert!((bisect(g, 1., 5.).root()? - 4f64).abs() < 1e-15);
+/// # Ok(()) }
+/// ```
+
+pub fn bisect<T, F, R>(
+    f: F, a: T, b: T) -> Bisect<T, F, T::DefaultTerminate, R::Error>
 where T: Bisectable,
-      F: FnMut(T) -> T {
+      F: FnMut(T) -> R,
+      R: FloatOrError<T> {
     Bisect::new(f, a, b)
 }
 
@@ -425,7 +538,7 @@ enum SignChange {
 /// `Root2` in this case).  Return an error if `fa` or `fb` is not
 /// finite or `fa` * `fb` > 0.
 #[inline]
-fn check_sign<T>(a: T, b: T, fa: T, fb: T) -> Result<SignChange, Error<T>>
+fn check_sign<T, E>(a: T, b: T, fa: T, fb: T) -> Result<SignChange, Error<T, E>>
 where T: Bisectable {
     use SignChange::*;
     if fa.lt0() {
@@ -455,23 +568,25 @@ where T: Bisectable {
     }
 }
 
-impl<T, F, Term> Bisect<T, F, Term>
+impl<T, F, R, Term> Bisect<T, F, Term, R::Error>
 where T: Bisectable + Copy,
-      F: FnMut(T) -> T,
-      Term: Terminate<T> {
+      F: FnMut(T) -> R,
+      R: FloatOrError<T>,
+      Term: Terminate<T>
+{
     /// Return `Ok(r)` where `r` is an approximate root of the
     /// function (provided that it is continuous) or `Err` indicating
     /// that the function returned a NaN value or, if
     /// [`maxiter_err`][Bisect::maxiter_err] was turned on, that the
     /// maximum number of iterations was reached.
-    pub fn root(&mut self) -> Result<T, Error<T>> {
+    pub fn root(&mut self) -> Result<T, Error<T, R::Error>> {
         let mut x = self.a;
         self.root_mut(&mut x).and(Ok(x))
     }
 
     /// Return an interval containing the root.  See
     /// [`root_mut`][Bisect::root_mut] for more information.
-    pub fn bracket(&mut self) -> Result<(T,T), Error<T>> {
+    pub fn bracket(&mut self) -> Result<(T,T), Error<T, R::Error>> {
         let mut x = self.a;
         self.root_mut(&mut x)
     }
@@ -486,7 +601,9 @@ where T: Bisectable + Copy,
     /// continuous.  If it is not, the description of the returned
     /// interval still holds but it is not guaranteed that `f`
     /// possesses a root in it.
-    pub fn root_mut(&mut self, root: &mut T) -> Result<(T,T), Error<T>> {
+    pub fn root_mut(
+        &mut self, root: &mut T
+    ) -> Result<(T,T), Error<T, R::Error>> {
         Self::check_interval_bounds(self)?;
         let mut a;
         let mut b;
@@ -498,8 +615,8 @@ where T: Bisectable + Copy,
             b = self.a;
         };
         // `a <= b`, both finite by construction
-        let mut fa = (self.f)(a);
-        let mut fb = (self.f)(b);
+        let mut fa = eval_float_result(&mut self.f, a)?;
+        let mut fb = eval_float_result(&mut self.f, b)?;
         macro_rules! body {
             ($lt0: ident, $gt0: ident) => {
                 for _ in 0 .. self.maxiter {
@@ -507,7 +624,7 @@ where T: Bisectable + Copy,
                     if self.t.stop(&a, &b, &fa, &fb) {
                         return Ok((a, b));
                     }
-                    let fx = (self.f)(*root);
+                    let fx = eval_float_result(&mut self.f, *root)?;
                     if fx.$lt0() { a = *root;  fa = fx; }
                     else if fx.$gt0() { b = *root;  fb = fx; }
                     else if fx.is_finite() { return Ok((a, b)) }
@@ -559,10 +676,12 @@ where T: Bisectable + Copy,
 ///          - 2f64.sqrt()).abs() < 1e-15);
 /// # Ok(()) }
 /// ```
-pub fn bisect_mut<'a, T, F>(
-    f: F, a: &'a T, b: &'a T) -> BisectMut<'a, T, F, T::DefaultTerminate>
+pub fn bisect_mut<'a, T, F, R>(
+    f: F, a: &'a T, b: &'a T
+) -> BisectMut<'a, T, F, T::DefaultTerminate, R::Error>
 where T: Bisectable,
-      F: FnMut(&mut T, &T) {
+      F: FnMut(&mut T, &T) -> R,
+      R: UnitOrError {
     BisectMut::new(f, a, b)
 }
 
@@ -589,7 +708,7 @@ new_root_finding_method! (
     workspace, Option<&'a mut BisectMutWorkspace<T>>,
     owned_workspace, Option<BisectMutWorkspace<T>>);
 
-impl<'a, T, F, Term> BisectMut<'a, T, F, Term>
+impl<'a, T, F, Term, E> BisectMut<'a, T, F, Term, E>
 where T: Bisectable, Term: Terminate<T> {
     /// Provide variables that will be used as workspace when running
     /// the bisection algorithm.
@@ -603,11 +722,13 @@ where T: Bisectable, Term: Terminate<T> {
 /// Same as [`check_sign`] for non-Copy types.  In addition evaluate
 /// `f` at `a` and `b` and store the result in `fa` and `fb` respectively.
 #[inline]
-fn check_sign_mut<T,F>(a: &T, b: &T,
-                       f: &mut F, fa: &mut T, fb: &mut T)
-                       -> Result<SignChange, Error<T>>
+fn check_sign_mut<T,F, R>(
+    a: &T, b: &T,
+    f: &mut F, fa: &mut T, fb: &mut T
+) -> Result<SignChange, Error<T, R::Error>>
 where T: Bisectable,
-      F: FnMut(&mut T, &T) {
+      F: FnMut(&mut T, &T) -> R,
+      R: UnitOrError {
     use SignChange::*;
     f(fa, a);
     if fa.lt0() {
@@ -641,10 +762,12 @@ where T: Bisectable,
     }
 }
 
-impl<'a, T, F, Term> BisectMut<'a, T, F, Term>
+impl<'a, T, F, R, Term> BisectMut<'a, T, F, Term, R::Error>
 where T: Bisectable,
-      F: FnMut(&mut T, &T),
-      Term: Terminate<T> {
+      F: FnMut(&mut T, &T) -> R,
+      R: UnitOrError,
+      Term: Terminate<T>
+{
     /// Set `root` to a root of the function `f` (see [`bisect_mut`]).
     /// Return the final bracket if all went well or an error to
     /// indicate that the algorithm failed (e.g., when the function
@@ -672,7 +795,9 @@ where T: Bisectable,
     /// assert!(a <= &x && &x <= b);
     /// # } Ok(()) }
     /// ```
-    pub fn root_mut(&mut self, root: &mut T) -> Result<(&T, &T), Error<T>> {
+    pub fn root_mut(
+        &mut self, root: &mut T
+    ) -> Result<(&T, &T), Error<T, R::Error>> {
         // If some workspace if given, use it even if internal storage
         // is available because it may have different, say, precision
         // characteristics.
@@ -702,7 +827,7 @@ where T: Bisectable,
                     if self.t.stop(a, b, fa, fb) {
                         return Ok((a, b));
                     }
-                    (self.f)(fx, root);
+                    eval_unit_result(&mut self.f, fx, root)?;
                     // `swap` so as to reuse allocated memory.
                     if fx.$lt0() { swap(a, root);
                                    swap(fa, fx); }
@@ -742,14 +867,14 @@ where T: Bisectable,
     /// Return a root of the function `f` (see [`bisect_mut`]) or
     /// `Err(e)` to indicate that the function `f` returned a NaN
     /// value.
-    pub fn root(&mut self) -> Result<T, Error<T>> {
+    pub fn root(&mut self) -> Result<T, Error<T, R::Error>> {
         let mut root = self.a.clone();
         self.root_mut(&mut root).and(Ok(root))
     }
 
     /// Return an interval containing the root.  See
     /// [`root_mut`][BisectMut::root_mut] for more information.
-    pub fn bracket(&mut self) -> Result<(&T, &T), Error<T>> {
+    pub fn bracket(&mut self) -> Result<(&T, &T), Error<T, R::Error>> {
         let mut x = self.a.clone();
         self.root_mut(&mut x)
     }
@@ -822,7 +947,7 @@ impl_ordfield_fXX!(f64);
 /// [`maxiter`][Toms748::maxiter] method.  See the methods of
 /// [`Toms748`] for more options.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```
 /// use root1d::toms748;
@@ -833,15 +958,43 @@ impl_ordfield_fXX!(f64);
 /// # Ok(()) }
 /// ```
 ///
+/// The function we apply the Toms748 algorithm to may also return an
+/// error in which case the bisection stops and returns the error
+/// [`Error::Fun`].
+///
+/// ```
+/// # use std::error::Error;
+/// # fn main() -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
+/// use root1d::toms748;
+/// let f = |a: f64| toms748(|x| x*x - a, 0., a.max(1.)).root();
+/// assert!((toms748(|a| f(a).and_then(|fa| Ok(fa - 2.)), 1., 5.).root()?
+///         - 4f64).abs() < 1e-15);
+/// # Ok(()) }
+/// ```
+///
+/// If you want to use `?` to return errors in the second closure, its
+/// error type must be known and you must help Rust with a type annotation.
+///
+/// ```
+/// # fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+/// use root1d::{toms748, Error};
+/// let f = |a: f64| toms748(|x| x*x - a, 0., a.max(1.)).root();
+/// let g = |a| -> Result<_, Error<_>> { Ok(f(a)? - 2.) };
+/// assert!((toms748(g, 1., 5.).root()? - 4f64).abs() < 1e-15);
+/// # Ok(()) }
+/// ```
+///
 /// # Reference
 ///
 /// G. E. Alefeld, F. A. Potra, and Y. Shi, “Algorithm 748:
 /// enclosing zeros of continuous functions,” ACM Trans. Math. Softw.,
 /// vol. 21, no. 3, pp. 327–344, Sep. 1995, doi:
 /// [10.1145/210089.210111](https://dx.doi.org/10.1145/210089.210111).
-pub fn toms748<T, F>(f: F, a: T, b: T) -> Toms748<T, F, T::DefaultTerminate>
+pub fn toms748<T, F, R>(
+    f: F, a: T, b: T) -> Toms748<T, F, T::DefaultTerminate, R::Error>
 where T: OrdField,
-      F: FnMut(T) -> T {
+      F: FnMut(T) -> R,
+      R: FloatOrError<T> {
     Toms748::new(f, a, b)
 }
 
@@ -897,9 +1050,10 @@ macro_rules! bracket_copy {
 macro_rules! abs_lt_neg_pos { ($x: expr, $y: expr) => { - $x < $y } }
 macro_rules! abs_lt_pos_neg { ($x: expr, $y: expr) => { $x < - $y } }
 
-impl<T, F, Term> Toms748<T, F, Term>
+impl<T, F, R, Term> Toms748<T, F, Term, R::Error>
 where T: OrdField,
-      F: FnMut(T) -> T,
+      F: FnMut(T) -> R,
+      R: FloatOrError<T>,
       Term: Terminate<T>
 {
     /// Use the Algorithm 748 to approximate a root of the function
@@ -913,17 +1067,20 @@ where T: OrdField,
     /// interval still holds but it is not guaranteed that `f`
     /// possesses a root in it.
     ///
-    /// The error [`Error::NotFinite`] is returned if the function `f`
-    /// produces a NaN value.  When [`maxiter_err`][Toms748::maxiter_err]
-    /// is turned on, the error [`Error::MaxIter`] is returned if
-    /// the maximum number of iterations is reached.
+    /// The error [`Error::NotFinite`] (resp. [`Error::Fun`]) is
+    /// returned if the function `f` produces a NaN value
+    /// (resp. returns an error).  When [`maxiter_err`][Toms748::maxiter_err]
+    /// is turned on, the error [`Error::MaxIter`] is returned if the
+    /// maximum number of iterations is reached.
     ///
     /// The advantage of Algorithm 748 compared to other methods of
     /// root-finding (such as the Bisection or Brent's method) is that
     /// it generally requires a lot less evaluations of the function
     /// to achieve a desired precision.  This is particularly
     /// interesting if the function is costly to evaluate.
-    pub fn root_mut(&mut self, root: &mut T) -> Result<(T,T), Error<T>> {
+    pub fn root_mut(
+        &mut self, root: &mut T
+    ) -> Result<(T,T), Error<T, R::Error>> {
         Self::check_interval_bounds(self)?;
         let mut a;
         let mut b;
@@ -934,8 +1091,8 @@ where T: OrdField,
             a = self.b;
             b = self.a;
         };
-        let mut fa = (self.f)(a);
-        let mut fb = (self.f)(b);
+        let mut fa = eval_float_result(&mut self.f, a)?;
+        let mut fb = eval_float_result(&mut self.f, b)?;
         // a ≤ b, `a` and `b` finite by construction
         if self.t.stop(&a, &b, &fa, &fb) {
             root.assign_mid(&a, &b);
@@ -955,7 +1112,7 @@ where T: OrdField,
                     c1.assign_mid(&a, &b);
                 }
                 // 4.2.2 = 4.1.2: (a, b, d) = (a₂, b₂, d₂)
-                let fc1 = (self.f)(c1);
+                let fc1 = eval_float_result(&mut self.f, c1)?;
                 bracket_copy!(a b c1 d, fa fb fc1 fd, self, root, $lt0, $gt0);
                 // 4.2.3: n = 2
                 let c2 = Self::newton_quadratic::<1>(a, b, d, fa, fb, fd);
@@ -975,7 +1132,7 @@ where T: OrdField,
             (step, $c: ident, $lt0: ident, $gt0: ident, $abs_lt: ident) => {
                 let dist_an_bn = b - a;
                 // 4.2.4
-                let fc = (self.f)($c);
+                let fc = eval_float_result(&mut self.f, $c)?;
                 e = d; // ẽₙ  (eₙ no longer used)
                 fe = fd; // f(ẽₙ)
                 // (a, b, d) = (ãₙ, b̃ₙ, d̃ₙ)
@@ -986,7 +1143,7 @@ where T: OrdField,
                     c = Self::newton_quadratic::<3>(a, b, d, fa, fb, fd);
                 };
                 // 4.2.6: (a, b, d) = (a̅ₙ, b̅ₙ, d̅ₙ)
-                let fc = (self.f)(c);
+                let fc = eval_float_result(&mut self.f, c)?;
                 bracket_copy!(a b c d, fa fb fc fd, self, root, $lt0, $gt0);
                 // 4.2.7 = 4.1.5: u = uₙ
                 debug_assert!(fa.$lt0() && fb.$gt0());
@@ -1016,7 +1173,7 @@ where T: OrdField,
                         c.assign_mid(&a, &b);
                     }
                 // 4.2.10 = 4.1.8: (a, b, d) = (âₙ, b̂ₙ, d̂ₙ)
-                let fc = (self.f)(c);
+                let fc = eval_float_result(&mut self.f, c)?;
                 e = d; // save d̅ₙ and anticipate eₙ₊₁ = d̅ₙ
                 fe = fd;
                 bracket_copy!(a b c d, fa fb fc fd, self, root, $lt0, $gt0);
@@ -1025,7 +1182,7 @@ where T: OrdField,
                 if (b - a).twice() >= dist_an_bn { // μ = 1/2
                     e = d;  fe = fd; // eₙ₊₁ = d̂ₙ
                     c.assign_mid(&a, &b); // reuse `c`
-                    let fmid = (self.f)(c);
+                    let fmid = eval_float_result(&mut self.f, c)?;
                     bracket_copy!(a b c d, fa fb fmid fd, self, root,
                                   $lt0, $gt0);
                 }
@@ -1116,14 +1273,14 @@ where T: OrdField,
     /// Return `Ok(r)` where `r` is a root of the function or `Err` if
     /// the algorithm did not converge.  See
     /// [`root_mut`][Toms748::root_mut] for more information.
-    pub fn root(&mut self) -> Result<T, Error<T>> {
+    pub fn root(&mut self) -> Result<T, Error<T, R::Error>> {
         let mut x = self.a;
         self.root_mut(&mut x).and(Ok(x))
     }
 
     /// Return an interval containing the root.  See
     /// [`root_mut`][Toms748::root_mut] for more information.
-    pub fn bracket(&mut self) -> Result<(T,T), Error<T>> {
+    pub fn bracket(&mut self) -> Result<(T,T), Error<T, R::Error>> {
         let mut x = self.a;
         self.root_mut(&mut x)
     }
@@ -1162,10 +1319,14 @@ pub trait OrdFieldMut: Bisectable
     }
 
 /// Same as [`toms748`] for non-[`Copy`] types.
-pub fn toms748_mut<'a, T, F>(
-    f: F, a: &'a T, b: &'a T) -> Toms748Mut<'a, T, F, T::DefaultTerminate>
-where T: OrdFieldMut + 'a,
-      F: FnMut(&mut T, &T) {
+pub fn toms748_mut<'a, T, F, R>(
+    f: F, a: &'a T, b: &'a T
+) -> Toms748Mut<'a, T, F, T::DefaultTerminate, R::Error>
+where
+    T: OrdFieldMut + 'a,
+    F: FnMut(&mut T, &T) -> R,
+    R: UnitOrError
+{
     Toms748Mut::new(f, a, b)
 }
 
@@ -1198,7 +1359,7 @@ new_root_finding_method!(
     workspace, Option<&'a mut Toms748MutWorkspace<T>>,
     owned_workspace, Option<Toms748MutWorkspace<T>>);
 
-impl<'a, T, F, Term> Toms748Mut<'a, T, F, Term>
+impl<'a, T, F, Term, E> Toms748Mut<'a, T, F, Term, E>
 where T: OrdFieldMut,
       Term: Terminate<T>
 {
@@ -1239,22 +1400,23 @@ macro_rules! abs_lt_pos_neg_mut {
     }}
 }
 
-impl<'a, T, F, Term> Toms748Mut<'a, T, F, Term>
+impl<'a, T, F, R, Term> Toms748Mut<'a, T, F, Term, R::Error>
 where T: OrdFieldMut + 'a,
-      F: FnMut(&mut T, &T),
+      F: FnMut(&mut T, &T) -> R,
+      R: UnitOrError,
       Term: Terminate<T>
 {
     /// Return a root of the function `f` (see [`toms748_mut`]) or
     /// `Err(e)` to indicate that the function `f` returned a NaN
     /// value.
-    pub fn root(&mut self) -> Result<T, Error<T>> {
+    pub fn root(&mut self) -> Result<T, Error<T, R::Error>> {
         let mut root = self.a.clone();
         self.root_mut(&mut root).and(Ok(root))
     }
 
     /// Return an interval containing the root.  See
     /// [`root_mut`][Toms748Mut::root_mut] for more information.
-    pub fn bracket(&mut self) -> Result<(&T, &T), Error<T>> {
+    pub fn bracket(&mut self) -> Result<(&T, &T), Error<T, R::Error>> {
         let mut x = self.a.clone();
         self.root_mut(&mut x)
     }
@@ -1286,8 +1448,9 @@ where T: OrdFieldMut + 'a,
     /// assert!(a <= &x && &x <= b);
     /// # } Ok(()) }
     /// ```
-    pub fn root_mut(&mut self, root: &mut T) -> Result<(&T, &T), Error<T>>
-    {
+    pub fn root_mut(
+        &mut self, root: &mut T
+    ) -> Result<(&T, &T), Error<T, R::Error>> {
         Self::check_interval_bounds(self)?;
         let Toms748MutWorkspace {
             a, b, c, d, e,
@@ -1606,6 +1769,7 @@ mod rug {
                     <Self as rug::ops::NegAssign>::neg_assign(self)
                 }
             }
+
         }
     }
 
@@ -1737,7 +1901,7 @@ mod tests {
     use crate as root1d;
     //use test::bench::Bencher;
 
-    type R<T> = Result<(), root1d::Error<T>>;
+    type R<T> = Result<(), root1d::Error<T, !>>;
 
     #[test]
     fn error_is_static() {
@@ -1745,7 +1909,7 @@ mod tests {
         fn _f<T>(x: T) -> Result<(), Box<dyn std::error::Error + 'static>>
         where T: Debug + Display + 'static + Clone {
             let fx = x.clone();
-            Err(Box::new(root1d::Error::NotFinite{x, fx}))
+            Err(Box::new(root1d::Error::<_, !>::NotFinite{x, fx}))
         }
     }
 
@@ -1762,7 +1926,7 @@ mod tests {
     #[test]
     fn test_ipzero() {
         // y³ + 3 = x
-        let r = root1d::Toms748::<f64, fn(f64) -> f64, root1d::Tol<f64>>
+        let r = root1d::Toms748::<f64, fn(f64) -> f64, root1d::Tol<f64>, !>
             ::ipzero([-5., 2., 4., 11.],
                      [-2., -1., 1., 2.]);
         assert_eq!(r, 3.);
@@ -1770,11 +1934,11 @@ mod tests {
 
     #[test]
     fn test_newton_quadratic() {
-        let r = root1d::Toms748::<f64, fn(f64) -> f64, root1d::Tol<f64>>
+        let r = root1d::Toms748::<f64, fn(f64) -> f64, root1d::Tol<f64>, !>
             ::newton_quadratic::<0>(0.,  2., 1.,
                                     -1., 3., 0.);
         assert_eq!(r, 1.25);
-        let r = root1d::Toms748::<f64, fn(f64) -> f64, root1d::Tol<f64>>
+        let r = root1d::Toms748::<f64, fn(f64) -> f64, root1d::Tol<f64>, !>
             ::newton_quadratic::<1>(0.,  2., 1.,
                                     -1., 3., 0.);
         assert_eq!(r, 41. / 40.);
