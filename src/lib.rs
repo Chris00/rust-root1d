@@ -566,19 +566,35 @@ where T: Bisectable,
     BisectMut::new(f, a, b)
 }
 
+/// Workspace needed to run the bisection algorithm for non-Copy types.
+#[derive(Clone)]
+pub struct BisectMutWorkspace<T> {
+    a: T, b: T, fa: T, fb: T, fx: T,
+}
+
+impl<T: Clone> BisectMutWorkspace<T> {
+    /// Create a new workspace by cloning `v`.
+    pub fn new(v: &T) -> Self {
+        Self {
+            a: v.clone(), b: v.clone(),
+            fa: v.clone(), fb: v.clone(), fx: v.clone(),
+        }
+    }
+}
+
 new_root_finding_method! (
     bisect_mut,
     /// Bisection algorithm (for non-[`Copy`] types).
     BisectMut<'a,...>,
-    workspace, Option<&'a mut (T,T,T,T,T)>,
-    owned_workspace, Option<(T,T,T,T,T)>);
+    workspace, Option<&'a mut BisectMutWorkspace<T>>,
+    owned_workspace, Option<BisectMutWorkspace<T>>);
 
 impl<'a, T, F, Term> BisectMut<'a, T, F, Term>
 where T: Bisectable, Term: Terminate<T> {
     /// Provide variables that will be used as workspace when running
     /// the bisection algorithm.
     #[must_use]
-    pub fn work(mut self, w: &'a mut (T,T,T,T,T)) -> Self {
+    pub fn work(mut self, w: &'a mut BisectMutWorkspace<T>) -> Self {
         self.workspace = Some(w);
         self
     }
@@ -661,18 +677,15 @@ where T: Bisectable,
         // is available because it may have different, say, precision
         // characteristics.
         Self::check_interval_bounds(self)?;
-        let (a, b, fa, fb, fx) = match &mut self.workspace {
+        let BisectMutWorkspace {a, b, fa, fb, fx} = match &mut self.workspace {
             None => {
                 if self.owned_workspace.is_none() {
                     self.owned_workspace = Some(
-                        (root.clone(), root.clone(), root.clone(),
-                         root.clone(), root.clone()));
+                        BisectMutWorkspace::new(root));
                 }
-                let tmp = self.owned_workspace.as_mut().unwrap();
-                (&mut tmp.0, &mut tmp.1, &mut tmp.2, &mut tmp.3, &mut tmp.4)
+                self.owned_workspace.as_mut().unwrap()
             }
-            Some(v) =>
-                (&mut v.0, &mut v.1, &mut v.2, &mut v.3, &mut v.4)
+            Some(v) => v,
         };
         if self.a <= self.b {
             a.assign(self.a);
