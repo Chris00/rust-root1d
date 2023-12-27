@@ -25,6 +25,7 @@ nightly = []
 criterion = "0.3.5"
 roots = "0.0.7"
 rand = "0.8.5"
+rayon = "1.8.0"
 
 [[example]]
 name = "basic"
