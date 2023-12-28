@@ -22,7 +22,7 @@ fn main() -> Result<(), Box<dyn Error + 'static>> {
     println!("bisect: {} secs", now.elapsed().as_secs_f64());
 
     out.clear();
-        let now = Instant::now();
+    let now = Instant::now();
     for lv in &levels {
         out.push(toms748(|x: f64| x * x.sin() - lv, 0., 2.).root()?);
     }
