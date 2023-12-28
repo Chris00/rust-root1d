@@ -2232,3 +2232,6 @@ mod tests_rug {
             Err(root1d::Error::NotFinite {x: _, fx: _})));
     }
 }
+
+#[cfg(doctest)]
+doc_comment::doctest!("../README.md");

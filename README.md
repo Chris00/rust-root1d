@@ -14,6 +14,7 @@ use root1d::toms748;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let root = toms748(|x| x*x - 2., 0., 2.).rtol(1e-10).root()?;
     println!("root: {}", root);
+	Ok(())
 }
 ```
 

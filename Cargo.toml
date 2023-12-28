@@ -23,6 +23,7 @@ nightly = []
 
 [dev-dependencies]
 criterion = "0.3.5"
+doc-comment = "0.3.3"
 roots = "0.0.7"
 rand = "0.8.5"
 rayon = "1.8.0"
