@@ -11,19 +11,18 @@ use rand::prelude::*;
 
 fn main() -> Result<(), Box<dyn Error + 'static>> {
     const N: usize = 100_000;
-    let levels: Vec<_> = iter::from_fn(|| Some(1.5 * random::<f64>()))
-        .take(N).collect();
+    let levels = iter::from_fn(|| Some(1.5 * random::<f64>())).take(N);
     let mut out = Vec::with_capacity(N);
 
     let now = Instant::now();
-    for lv in &levels {
+    for lv in levels.clone() {
         out.push(bisect(|x: f64| x * x.sin() - lv, 0., 2.).root()?);
     }
     println!("bisect: {} secs", now.elapsed().as_secs_f64());
 
     out.clear();
     let now = Instant::now();
-    for lv in &levels {
+    for lv in levels {
         out.push(toms748(|x: f64| x * x.sin() - lv, 0., 2.).root()?);
     }
     println!("toms748: {} secs", now.elapsed().as_secs_f64());
