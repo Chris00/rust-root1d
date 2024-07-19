@@ -18,6 +18,11 @@ bench:
 	@$(TIME) target/release/examples/speed_roots
 	@$(TIME) target/release/examples/speed
 	@$(TIME) target/release/examples/speed_toms748
+	@echo "no_std"
+	@cargo build --profile release --no-default-features --quiet \
+	  --example speed --example speed_toms748
+	@$(TIME) target/release/examples/speed
+	@$(TIME) target/release/examples/speed_toms748
 
 bench_mut:
 	@$(TIME) cargo build --profile release --features rug \

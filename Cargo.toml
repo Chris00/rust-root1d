@@ -9,7 +9,7 @@ repository = "https://github.com/Chris00/rust-root1d"
 documentation = "https://docs.rs/root1d"
 license = "GPL-2.0-or-later"
 keywords = ["math", "numerics", "science", "mathematics", "simulation"]
-categories = ["mathematics", "science"]
+categories = ["mathematics", "science", "no-std"]
 exclude = ["*.org", "dune-project", "dune", "*.ml"]
 
 [dependencies.rug]
@@ -19,6 +19,8 @@ features = ["float", "rational"]
 optional = true
 
 [features]
+default = ["std"]
+std = []
 nightly = []
 
 [dev-dependencies]

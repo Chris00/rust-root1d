@@ -31,6 +31,7 @@ For more information, consult the
   the creation of temporary values.
 - State of the art root finding algorithm ([Toms748][]) requiring only
   few evaluations of the function.
+- Compile with `#![no_std]` when declared with `default-features = false`.
 
 [`rug::Float`]: https://docs.rs/rug/latest/rug/struct.Float.html
 [`rug::Rational`]: https://docs.rs/rug/latest/rug/struct.Rational.html

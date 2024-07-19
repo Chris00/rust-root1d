@@ -1,3 +1,4 @@
+#![cfg_attr(not(feature = "std"), no_std)]
 //! One dimensional root finding algorithms.
 //!
 //! This crate offers several *generic* root finding algorithms for
@@ -39,10 +40,18 @@
 //! implement [`Terminate`] and [`Default`] for it.  To use
 //! [`toms748`] (resp. [`toms748_mut`]), you must also implement the
 //! trait [`OrdField`] (resp. [`OrdFieldMut`]).
+//!
+//!
+//! # Crate features
+//!
+//! - `std` (enabled by default).  
+//!   Disable (with `default-features = false`) to compile this crate
+//!   with `#![no_std]`.
+//! - `rug` to compile with support for `rug::Float` and `rug::Rational`.
 
 #![cfg_attr(feature = "nightly", feature(never_type))]
 
-use std::{
+use core::{
     cmp::Ordering,
     fmt::{self, Debug, Display, Formatter},
     mem::swap,
@@ -53,6 +62,7 @@ use std::{
     marker::PhantomData,
     result::Result,
 };
+
 
 #[cfg(feature = "nightly")]
 /// Type indicating that no error is raised by the function.
@@ -99,6 +109,7 @@ impl<T: Display, E: Debug> Display for Error<T, E> {
     }
 }
 
+#[cfg(feature = "std")]
 impl<T: Debug + Display, E: Debug> std::error::Error for Error<T, E> {}
 
 ////////////////////////////////////////////////////////////////////////
@@ -184,7 +195,8 @@ pub trait Terminate<T> {
     /// Return `true` if the bracketing [`a`, `b`] of the root is
     /// deemed good enough.  `fa` and `fb` are the values of the
     /// function `f` at `a` and `b` respectively.  You can assume
-    /// that `a <= b`.
+    /// that `a <= b`.  You can assume that `a`, `b`, `fa` and `fb`
+    /// satisfy [`Bisectable::is_finite`].
     ///
     /// This function may mutate `self` as it may contain resources
     /// that are not reallocated at every call of `stop`.
@@ -235,14 +247,22 @@ pub struct Tol<U> {
 }
 
 macro_rules! impl_traits_tol_fXX {
-    ($t: ty, $rtol: expr, $atol: expr) => {
+    ($t: ty, $rtol: expr, $atol: expr, $mask: expr) => {
         impl Default for Tol<$t> {
             fn default() -> Self { Tol { rtol: $rtol, atol: $atol } }
         }
         impl Terminate<$t> for Tol<$t> {
             #[inline]
             fn stop(&mut self, a: &$t, b: &$t, _fa: &$t, _fb: &$t) -> bool {
-                b - a <= self.rtol * a.abs().max(b.abs()) + self.atol
+                #[inline]
+                fn abs(x: $t) -> $t {
+                    debug_assert_eq!(x, x); // Not NaN
+                    #[cfg(not(feature = "std"))]
+                    return <$t>::from_bits(x.to_bits() & $mask);
+                    #[cfg(feature = "std")]
+                    return x.abs();
+                }
+                b - a <= self.rtol * abs(*a).max(abs(*b)) + self.atol
             }
         }
         // We only implement this for certain types (and not
@@ -259,8 +279,8 @@ macro_rules! impl_traits_tol_fXX {
     }
 }
 
-impl_traits_tol_fXX!(f64, 4. * f64::EPSILON, 2e-12);
-impl_traits_tol_fXX!(f32, 4. * f32::EPSILON, 2e-6);
+impl_traits_tol_fXX!(f64, 4. * f64::EPSILON, 2e-12, !(1 << 63));
+impl_traits_tol_fXX!(f32, 4. * f32::EPSILON, 2e-6, !(1 << 31));
 
 // Update if https://rust-lang.github.io/rfcs/3453-f16-and-f128.html
 // is merged.
@@ -294,7 +314,7 @@ pub trait Bisectable: PartialOrd + Clone + Debug {
 
     /// Set `self` to the midpoint of the interval \[`a`, `b`\].
     /// The bounds may be assumed to be finite (as determined by
-    /// [`Bisectable::is_finite`]).
+    /// [`Bisectable::is_finite`]).  The result *must* also be finite.
     fn assign_mid(&mut self, a: &Self, b: &Self);
 }
 
