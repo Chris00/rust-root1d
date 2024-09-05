@@ -2,6 +2,7 @@
 name = "root1d"
 version = "0.4.0"
 edition = "2021"
+rust-version = "1.81.0"
 authors = ["Christophe Troestler <christophe.troestler@umons.ac.be>"]
 description = "One dimensional root finding algorithms"
 homepage = "https://github.com/Chris00/rust-root1d"

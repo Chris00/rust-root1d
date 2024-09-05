@@ -109,8 +109,7 @@ impl<T: Display, E: Debug> Display for Error<T, E> {
     }
 }
 
-#[cfg(feature = "std")]
-impl<T: Debug + Display, E: Debug> std::error::Error for Error<T, E> {}
+impl<T: Debug + Display, E: Debug> core::error::Error for Error<T, E> {}
 
 ////////////////////////////////////////////////////////////////////////
 //
