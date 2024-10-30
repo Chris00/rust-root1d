@@ -22,7 +22,6 @@ optional = true
 [features]
 default = ["std"]
 std = []
-nightly = []
 
 [dev-dependencies]
 criterion = "0.3.5"

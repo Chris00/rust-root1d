@@ -49,8 +49,6 @@
 //!   with `#![no_std]`.
 //! - `rug` to compile with support for `rug::Float` and `rug::Rational`.
 
-#![cfg_attr(feature = "nightly", feature(never_type))]
-
 use core::{
     cmp::Ordering,
     fmt::{self, Debug, Display, Formatter},
@@ -64,11 +62,11 @@ use core::{
 };
 
 
-#[cfg(feature = "nightly")]
+#[cfg(feature = "std")]
 /// Type indicating that no error is raised by the function.
-pub type NoError = !;
-#[cfg(not(feature = "nightly"))]
-#[derive(Debug)]
+pub type NoError = std::convert::Infallible;
+#[cfg(not(feature = "std"))]
+#[derive(Debug, Clone, Copy)]
 /// Type indicating that no error is raised by the function.
 pub enum NoError {}
 
