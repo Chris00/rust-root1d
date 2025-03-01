@@ -1,6 +1,6 @@
 [package]
 name = "root1d"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 rust-version = "1.81.0"
 authors = ["Christophe Troestler <christophe.troestler@umons.ac.be>"]
@@ -24,11 +24,11 @@ default = ["std"]
 std = []
 
 [dev-dependencies]
-criterion = "0.3.5"
+criterion = "0.5.1"
 doc-comment = "0.3.3"
-roots = "0.0.7"
-rand = "0.8.5"
-rayon = "1.8.0"
+roots = "0.0.8"
+rand = "0.9.0"
+rayon = "1.10.0"
 
 [[example]]
 name = "basic"

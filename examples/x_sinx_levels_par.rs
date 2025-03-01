@@ -2,7 +2,7 @@
 
 use std::{error::Error, iter, time::Instant};
 use root1d::{bisect, toms748};
-use rand::prelude::*;
+use rand::random;
 use rayon::prelude::*;
 
 fn main() -> Result<(), Box<dyn Error + 'static>> {

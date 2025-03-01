@@ -7,7 +7,7 @@
 
 use std::{error::Error, iter, time::Instant};
 use root1d::{toms748, bisect};
-use rand::prelude::*;
+use rand::random;
 
 fn main() -> Result<(), Box<dyn Error + 'static>> {
     const N: usize = 100_000;
