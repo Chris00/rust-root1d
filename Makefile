@@ -40,9 +40,11 @@ flamegraph:
 	cargo build --profile release --example speed
 	flamegraph -o $(TMP)/speed.svg -- target/release/examples/speed
 
+audit:
+	cargo audit
 
 clean:
 	cargo clean
 	-dune clean
 
-.PHONY: build doc examples bench bench_mut criterion neval flamegraph clean
+.PHONY: audit build doc examples bench bench_mut criterion neval flamegraph clean

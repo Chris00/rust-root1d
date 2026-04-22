@@ -14,7 +14,7 @@ categories = ["mathematics", "science", "no-std"]
 exclude = ["*.org", "dune-project", "dune", "*.ml"]
 
 [dependencies.rug]
-version = "1.15.0"
+version = "1.29"
 default-features = false
 features = ["float", "rational"]
 optional = true
@@ -24,11 +24,11 @@ default = ["std"]
 std = []
 
 [dev-dependencies]
-criterion = "0.5.1"
-doc-comment = "0.3.3"
+criterion = "0.8"
+doc-comment = "0.3.4"
 roots = "0.0.8"
 rand = "0.9.3"
-rayon = "1.10.0"
+rayon = "1.12.0"
 
 [[example]]
 name = "basic"
