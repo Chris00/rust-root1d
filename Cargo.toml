@@ -27,7 +27,7 @@ std = []
 criterion = "0.5.1"
 doc-comment = "0.3.3"
 roots = "0.0.8"
-rand = "0.9.0"
+rand = "0.9.3"
 rayon = "1.10.0"
 
 [[example]]
